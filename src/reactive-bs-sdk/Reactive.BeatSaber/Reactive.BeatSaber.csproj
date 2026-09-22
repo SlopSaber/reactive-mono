@@ -115,7 +115,7 @@
             <HintPath>$(UnityAssembliesDir)\UnityEngine.AssetBundleModule.dll</HintPath>
             <Private>False</Private>
         </Reference>
-        <Reference Include="UnityEditor.CoreModule">
+        <Reference Include="UnityEditor.CoreModule" Condition="$(Configuration.Contains('Editor'))">
             <HintPath>$(UnityAssembliesDir)\UnityEditor.CoreModule.dll</HintPath>
             <Private>False</Private>
         </Reference>
@@ -136,6 +136,6 @@
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="BeatSaberModdingTools.Tasks" Version="2.0.0-beta7" PrivateAssets="all"/>
+        <PackageReference Include="BeatSaberModdingTools.Tasks" Version="2.0.0-beta7" PrivateAssets="all" IncludeAssets="build; contentfiles; analyzers; buildtransitive"/>
     </ItemGroup>
 </Project>

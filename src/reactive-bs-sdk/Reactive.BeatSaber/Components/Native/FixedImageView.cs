@@ -6,7 +6,7 @@ namespace Reactive.BeatSaber.Components {
     [HarmonyPatch(typeof(UnityEngine.UI.Image), "get_pixelsPerUnit")]
 #endif
     internal class FixedImageView : HMUI.ImageView {
-        public GradientDirection GradientDirection {
+        public new GradientDirection GradientDirection {
 #if !COMPILE_EDITOR
             get => _gradientDirection;
             set => _gradientDirection = value;

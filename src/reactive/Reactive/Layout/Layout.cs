@@ -68,7 +68,7 @@ namespace Reactive {
             _lastRecalculationTime = Time.time;
         }
 
-        public void RecalculateLayoutImmediate() {
+        public new void RecalculateLayoutImmediate() {
             _beingRecalculated = true;
 
             // Items without modifiers are not supposed to be controlled

@@ -82,6 +82,7 @@ namespace Reactive.Components.Basic {
 
         protected override void Construct(RectTransform rect) {
             _image = rect.gameObject.AddComponent<UnityEngine.UI.Image>();
+            _image.RegisterDirtyLayoutCallback(() => LeafLayoutUpdatedEvent?.Invoke(this));
         }
 
         public event Action<ILeafLayoutItem>? LeafLayoutUpdatedEvent;

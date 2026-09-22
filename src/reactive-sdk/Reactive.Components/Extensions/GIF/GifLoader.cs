@@ -134,7 +134,7 @@ namespace B83.Image.GIF {
         public EScreenDescriptorFlags flags;
         public byte bgColorIndex;
         public byte pixelAspectRatio;
-        public Color32[] globalColorTable;
+        public Color32[]? globalColorTable;
 
         public bool HasGlobalColorTable {
             get {
@@ -187,6 +187,10 @@ namespace B83.Image.GIF {
     #region Blocks and extensions
 
     internal class GIFGraphicControlExt : IGIFExtension, IGIFBlock {
+        public GIFGraphicControlExt(GIFImage parent) {
+            Parent = parent;
+        }
+
         public GIFImage Parent { get; set; }
 
         public EBlockType blockType {
@@ -234,6 +238,11 @@ namespace B83.Image.GIF {
     }
 
     internal class GIFImageBlock : IGIFRenderingBlock {
+        public GIFImageBlock(GIFImage parent) {
+            Parent = parent;
+            graphicControl = new GIFGraphicControlExt(parent);
+        }
+
         public GIFImage Parent { get; set; }
 
         public EBlockType blockType {
@@ -248,9 +257,9 @@ namespace B83.Image.GIF {
         public ushort width;
         public ushort height;
         public EImageDescriptorFlags flags;
-        public Color32[] colorTable;
-        public Color32[] usedColorTable;
-        public List<byte> data;
+        public Color32[]? colorTable;
+        public Color32[]? usedColorTable;
+        public List<byte> data = new List<byte>();
         public int packedSize;
         internal int _Interlaced81 = 0; // count of lines of stage 1
         internal int _Interlaced82 = 0; // count of lines of stage 2
@@ -361,7 +370,9 @@ namespace B83.Image.GIF {
             }
             if (IsInterlaced)
                 CalcInterlacedLimits();
-            var bgColor = Parent.screen.globalColorTable[bgColorIndex];
+            var globalColors = Parent.screen.globalColorTable;
+            var bgColor = globalColors != null && bgColorIndex >= 0 && bgColorIndex < globalColors.Length
+                ? globalColors[bgColorIndex] : new Color32(0, 0, 0, 0);
             if (Parent.BackgroundTransparent)
                 bgColor.a = 0;
             for (int y = 0; y < height; y++) {
@@ -387,8 +398,8 @@ namespace B83.Image.GIF {
         }
 
         public void Dispose(Color32[] aData, int aWidth, int aHeight, int aXOffset, int aYOffset) {
-            if (graphicControl.DisposalMethod == EDisposalMethod.RestoreBackgroundColor && Parent.screen.HasGlobalColorTable) {
-                var col = Parent.screen.globalColorTable[Parent.screen.bgColorIndex];
+            if (graphicControl.DisposalMethod == EDisposalMethod.RestoreBackgroundColor && Parent.screen.globalColorTable is { } globalColors && Parent.screen.bgColorIndex < globalColors.Length) {
+                var col = globalColors[Parent.screen.bgColorIndex];
                 if (Parent.BackgroundTransparent)
                     col.a = 0;
                 for (int y = 0; y < height; y++) {
@@ -404,6 +415,11 @@ namespace B83.Image.GIF {
     }
 
     internal class GIFTextBlock : IGIFRenderingBlock, IGIFExtension {
+        public GIFTextBlock(GIFImage parent) {
+            Parent = parent;
+            graphicControl = new GIFGraphicControlExt(parent);
+        }
+
         public GIFImage Parent { get; set; }
 
         public EBlockType blockType {
@@ -427,7 +443,7 @@ namespace B83.Image.GIF {
         public byte charHeight;
         public byte colorIndex;
         public byte bgColorIndex;
-        public string text;
+        public string text = string.Empty;
 
         public void DrawTo(Color32[] aData, int aWidth, int aHeight, int aXOffset, int aYOffset) {
             throw new NotImplementedException();
@@ -439,6 +455,10 @@ namespace B83.Image.GIF {
     }
 
     internal class GIFCommentBlock : IGIFExtension, IGIFBlock {
+        public GIFCommentBlock(GIFImage parent) {
+            Parent = parent;
+        }
+
         public GIFImage Parent { get; set; }
 
         public EBlockType blockType {
@@ -453,10 +473,14 @@ namespace B83.Image.GIF {
             }
         }
 
-        public string text;
+        public string text = string.Empty;
     }
 
     internal class GIFApplicationExt : IGIFExtension, IGIFBlock {
+        public GIFApplicationExt(GIFImage parent) {
+            Parent = parent;
+        }
+
         public GIFImage Parent { get; set; }
 
         public EBlockType blockType {
@@ -471,11 +495,15 @@ namespace B83.Image.GIF {
             }
         }
 
-        public string extName;
-        public byte[] data;
+        public string extName = string.Empty;
+        public byte[] data = Array.Empty<byte>();
     }
 
     internal class GIFGenericExt : IGIFExtension, IGIFBlock {
+        public GIFGenericExt(GIFImage parent) {
+            Parent = parent;
+        }
+
         public GIFImage Parent { get; set; }
 
         public EBlockType blockType {
@@ -485,7 +513,7 @@ namespace B83.Image.GIF {
         }
 
         public EExtensionType extType { get; set; }
-        public byte[] data;
+        public byte[] data = Array.Empty<byte>();
     }
 
     #endregion Blocks and extensions
@@ -530,14 +558,14 @@ namespace B83.Image.GIF {
 
     internal class GIFLoader {
         byte[] buf = new byte[255];
-        GIFGraphicControlExt lastGrCtrl = null;
+        GIFGraphicControlExt? lastGrCtrl;
 
-        public GIFImage Load(string aFileName) {
+        public GIFImage? Load(string aFileName) {
             using (var stream = File.OpenRead(aFileName))
                 return Load(stream);
         }
 
-        public GIFImage Load(Stream aStream) {
+        public GIFImage? Load(Stream aStream) {
             using (var reader = new BinaryReader(aStream))
                 return Load(reader);
         }
@@ -585,32 +613,32 @@ namespace B83.Image.GIF {
             return img.screen.HasGlobalColorTable ^ img.screen.globalColorTable == null;
         }
 
-        private IGIFBlock ReadBlock(BinaryReader aReader, GIFImage aImage) {
+        private IGIFBlock? ReadBlock(BinaryReader aReader, GIFImage aImage) {
             byte blockType = aReader.ReadByte();
             switch ((EBlockType)blockType) {
-                case EBlockType.Extension:       return ReadExtension(aReader);
+                case EBlockType.Extension:       return ReadExtension(aReader, aImage);
                 case EBlockType.ImageDescriptor: return ReadImage(aReader, aImage);
                 case EBlockType.Trailer:         return null;
                 default:                         throw new System.NotSupportedException("Encountered unknown GIF block type: 0x" + blockType.ToString("x2") + " at " + aReader.BaseStream.Position);
             }
         }
 
-        private IGIFBlock ReadExtension(BinaryReader aReader) {
+        private IGIFBlock ReadExtension(BinaryReader aReader, GIFImage aImage) {
             byte extType = aReader.ReadByte();
             switch ((EExtensionType)extType) {
-                case EExtensionType.GraphicControl: return ReadGraphicControlBlock(aReader);
-                case EExtensionType.Comment:        return ReadCommentBlock(aReader);
-                case EExtensionType.PlainText:      return ReadPlainTextBlock(aReader);
-                case EExtensionType.Application:    return ReadApplicationBlock(aReader);
+                case EExtensionType.GraphicControl: return ReadGraphicControlBlock(aReader, aImage);
+                case EExtensionType.Comment:        return ReadCommentBlock(aReader, aImage);
+                case EExtensionType.PlainText:      return ReadPlainTextBlock(aReader, aImage);
+                case EExtensionType.Application:    return ReadApplicationBlock(aReader, aImage);
                 default: {
                     // Debug.LogWarning("Encountered unknown extension type: 0x" + extType.ToString("x2") + " at " + aReader.BaseStream.Position);
-                    return ReadGenericExtension(aReader, extType);
+                    return ReadGenericExtension(aReader, extType, aImage);
                 }
             }
         }
 
-        private IGIFBlock ReadGenericExtension(BinaryReader aReader, byte aType) {
-            var res = new GIFGenericExt();
+        private IGIFBlock ReadGenericExtension(BinaryReader aReader, byte aType, GIFImage aImage) {
+            var res = new GIFGenericExt(aImage);
             res.extType = (EExtensionType)aType;
             using (MemoryStream ms = new MemoryStream())
             using (BinaryWriter bw = new BinaryWriter(ms)) {
@@ -627,11 +655,11 @@ namespace B83.Image.GIF {
             return res;
         }
 
-        private IGIFBlock ReadApplicationBlock(BinaryReader aReader) {
+        private IGIFBlock ReadApplicationBlock(BinaryReader aReader, GIFImage aImage) {
             byte appIdentLength = aReader.ReadByte();
             if (appIdentLength != 11)
                 throw new Exception("GIF: Application extension identifier block length wrong: " + appIdentLength + " != 11");
-            var res = new GIFApplicationExt();
+            var res = new GIFApplicationExt(aImage);
             res.extName = System.Text.Encoding.ASCII.GetString(aReader.ReadBytes(11));
             using (MemoryStream ms = new MemoryStream())
             using (BinaryWriter bw = new BinaryWriter(ms)) {
@@ -648,11 +676,11 @@ namespace B83.Image.GIF {
             return res;
         }
 
-        private IGIFBlock ReadPlainTextBlock(BinaryReader aReader) {
+        private IGIFBlock ReadPlainTextBlock(BinaryReader aReader, GIFImage aImage) {
             byte blockSize = aReader.ReadByte();
             if (blockSize != 12)
                 throw new Exception("GIF: PlainText extension block size wrong: " + blockSize + " != 12");
-            var res = new GIFTextBlock();
+            var res = new GIFTextBlock(aImage);
             res.xPos = aReader.ReadUInt16();
             res.yPos = aReader.ReadUInt16();
             res.width = aReader.ReadUInt16();
@@ -679,8 +707,8 @@ namespace B83.Image.GIF {
             return res;
         }
 
-        private IGIFBlock ReadCommentBlock(BinaryReader aReader) {
-            var res = new GIFCommentBlock();
+        private IGIFBlock ReadCommentBlock(BinaryReader aReader, GIFImage aImage) {
+            var res = new GIFCommentBlock(aImage);
             using (MemoryStream ms = new MemoryStream())
             using (BinaryWriter bw = new BinaryWriter(ms)) {
                 byte size = aReader.ReadByte();
@@ -695,11 +723,11 @@ namespace B83.Image.GIF {
             return res;
         }
 
-        private IGIFBlock ReadGraphicControlBlock(BinaryReader aReader) {
+        private IGIFBlock ReadGraphicControlBlock(BinaryReader aReader, GIFImage aImage) {
             byte blockSize = aReader.ReadByte();
             if (blockSize != 4)
                 throw new Exception("GIF: GraphicControl extension block size wrong: " + blockSize + " != 4");
-            var res = new GIFGraphicControlExt();
+            var res = new GIFGraphicControlExt(aImage);
             res.flags = (EGraphicControlFlags)aReader.ReadByte();
             res.delay = aReader.ReadUInt16();
             res.transparentColorIndex = aReader.ReadByte();
@@ -711,7 +739,7 @@ namespace B83.Image.GIF {
         }
 
         private IGIFBlock ReadImage(BinaryReader aReader, GIFImage aImage) {
-            var res = new GIFImageBlock();
+            var res = new GIFImageBlock(aImage);
             res.xPos = aReader.ReadUInt16();
             res.yPos = aReader.ReadUInt16();
             res.width = aReader.ReadUInt16();

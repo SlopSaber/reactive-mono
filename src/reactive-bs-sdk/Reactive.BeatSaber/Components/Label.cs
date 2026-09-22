@@ -84,9 +84,9 @@ public class Label : ReactiveComponent, ISkewedComponent, IGraphic, ILeafLayoutI
     }
 
     public bool EnableWrapping {
-        get => _text.enableWordWrapping;
+        get => _text.textWrappingMode == TMPro.TextWrappingModes.Normal;
         set {
-            _text.enableWordWrapping = value;
+            _text.textWrappingMode = value ? TMPro.TextWrappingModes.Normal : TMPro.TextWrappingModes.NoWrap;
             NotifyPropertyChanged();
         }
     }

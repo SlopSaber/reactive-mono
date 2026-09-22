@@ -122,6 +122,7 @@ public class Image : ReactiveComponent, IComponentHolder<Image>, ISkewedComponen
 
     protected override void Construct(RectTransform rect) {
         _image = rect.gameObject.AddComponent<FixedImageView>();
+            _image.RegisterDirtyLayoutCallback(() => LeafLayoutUpdatedEvent?.Invoke(this));
         Material = GameResources.UINoGlowMaterial;
     }
 

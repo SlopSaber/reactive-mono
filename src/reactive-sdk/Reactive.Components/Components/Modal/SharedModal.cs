@@ -51,6 +51,8 @@ namespace Reactive.Components {
 
             _modal.ModalClosedEvent += HandleModalClosed;
             _modal.ModalOpenedEvent += HandleModalOpened;
+            _modal.ModifierUpdatedEvent += HandleModifierUpdated;
+            _modal.StateUpdatedEvent += HandleStateUpdated;
 
             OnSpawn();
         }
@@ -58,6 +60,8 @@ namespace Reactive.Components {
         private void DespawnModal() {
             _modal!.ModalClosedEvent -= HandleModalClosed;
             _modal.ModalOpenedEvent -= HandleModalOpened;
+            _modal.ModifierUpdatedEvent -= HandleModifierUpdated;
+            _modal.StateUpdatedEvent -= HandleStateUpdated;
 
             if (_modules != null) {
                 foreach (var module in _modules) {
@@ -184,6 +188,10 @@ namespace Reactive.Components {
         #endregion
 
         #region Callbacks
+
+        private void HandleModifierUpdated(ILayoutItem item) => ModifierUpdatedEvent?.Invoke(this);
+
+        private void HandleStateUpdated(ILayoutItem item) => StateUpdatedEvent?.Invoke(this);
 
         private void HandleModalClosed(IModal modal, bool finished) {
             OnCloseInternal(finished);

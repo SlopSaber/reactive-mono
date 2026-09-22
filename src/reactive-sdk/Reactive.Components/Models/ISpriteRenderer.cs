@@ -8,5 +8,5 @@ namespace Reactive.Components;
 /// </summary>
 [PublicAPI]
 public interface ISpriteRenderer {
-    Sprite Sprite { get; set; }
+    Sprite? Sprite { get; set; }
 }

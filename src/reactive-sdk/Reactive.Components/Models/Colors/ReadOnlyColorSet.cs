@@ -10,7 +10,11 @@ namespace Reactive.Components {
         public Color ActiveColor;
         public Color HoveredColor;
 
-        public event Action? SetUpdatedEvent;
+        // Value-type snapshots do not publish change notifications.
+        public event Action? SetUpdatedEvent {
+            add { }
+            remove { }
+        }
         
         public Color GetColor(GraphicState state) {
             if (state.IsHovered()) {
