@@ -5,4 +5,11 @@
     <PropertyGroup Condition="'$(UnityAssembliesDir)' == '' and '$(BeatSaberDir)' != ''">
         <UnityAssembliesDir>$(BeatSaberDir)/Beat Saber_Data/Managed</UnityAssembliesDir>
     </PropertyGroup>
+    <PropertyGroup Condition="'$(BeatSaberDir)' != '' and !$(Configuration.Contains('Editor'))">
+        <EnableFrameworkPathOverride>true</EnableFrameworkPathOverride>
+        <FrameworkPathOverride>$(BeatSaberDir)/Beat Saber_Data/Managed</FrameworkPathOverride>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(BeatSaberDir)' != '' and !$(Configuration.Contains('Editor'))">
+        <Reference Include="netstandard" HintPath="$(BeatSaberDir)/Beat Saber_Data/Managed/netstandard.dll" Private="false" />
+    </ItemGroup>
 </Project>
