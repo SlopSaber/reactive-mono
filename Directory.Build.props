@@ -1,4 +1,7 @@
 <Project>
+    <PropertyGroup Condition="!$(Configuration.Contains('Editor'))">
+        <BeatSaberDir>D:\BSManager\BSInstances\1.45.1</BeatSaberDir>
+    </PropertyGroup>
     <Import Project="Directory.Build.props.user" Condition="Exists('Directory.Build.props.user')" />
 
     <!-- MSBuild doesn't pass properties defined in .csproj to project references, so we have to define it here -->
