@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
+        <GameDirectory>D:\BSManager\BSInstances\1.45.1</GameDirectory>
+        <ImportBSMTTargets>false</ImportBSMTTargets>
+        <DisableCopyToGame Condition="!$(Configuration.Contains('Editor'))">false</DisableCopyToGame>
+        <DisableCopyToGame Condition="$(Configuration.Contains('Editor'))">true</DisableCopyToGame>
         <TargetFramework>net48</TargetFramework>
         <AppOutputBase>$(MSBuildProjectDirectory)\</AppOutputBase>
         <LangVersion>latest</LangVersion>
@@ -9,6 +13,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="BeatSaberModdingTools.Tasks" Version="2.0.0-beta7" PrivateAssets="all" IncludeAssets="build;contentfiles;analyzers;buildtransitive" />
         <Reference Include="UnityEngine">
             <HintPath>$(UnityAssembliesDir)/UnityEngine.dll</HintPath>
             <Private>False</Private>

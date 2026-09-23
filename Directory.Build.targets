@@ -1,0 +1,15 @@
+<Project>
+  <Target Name="CopyReactiveLibraryToGame" AfterTargets="Build"
+          Condition="('$(MSBuildProjectName)' == 'Reactive' OR '$(MSBuildProjectName)' == 'Reactive.Components') AND '$(DisableCopyToGame)' != 'true'">
+    <Error Condition="!Exists('$(GameDirectory)\Beat Saber.exe')" Text="GameDirectory is not a Beat Saber install: $(GameDirectory)" />
+    <IsProcessRunning ProcessName="Beat Saber" Fallback="true">
+      <Output TaskParameter="IsRunning" PropertyName="ReactiveGameRunning" />
+    </IsProcessRunning>
+    <PropertyGroup>
+      <ReactiveLibraryDirectory>$(GameDirectory)\Libs</ReactiveLibraryDirectory>
+      <ReactiveLibraryDirectory Condition="'$(ReactiveGameRunning)' == 'true'">$(GameDirectory)\IPA\Pending\Libs</ReactiveLibraryDirectory>
+    </PropertyGroup>
+    <MakeDir Directories="$(ReactiveLibraryDirectory)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(ReactiveLibraryDirectory)\$(TargetFileName)" />
+  </Target>
+</Project>
