@@ -42,7 +42,7 @@ public static class ImageLoader {
                 } else {
                     // If the image isn't animated, use an optimized request version
                     // to load directly to a native texture, avoiding managed allocations
-                    image = await LoadStaticRemote(location);
+                    image = await LoadStaticRemote(location, token);
                 }
             } else {
                 Stream? stream = null;
@@ -129,22 +129,33 @@ public static class ImageLoader {
         return string.Compare(location, endIndex - 4, ".gif", 0, 4, StringComparison.OrdinalIgnoreCase) == 0;
     }
 
-    private static async Task<CachedImage?> LoadStaticRemote(string location) {
+    private static async Task<CachedImage?> LoadStaticRemote(string location, CancellationToken token) {
         using var req = UnityWebRequestTexture.GetTexture(location);
+        req.timeout = 20;
+        var operation = req.SendWebRequest();
+        try {
+            while (!operation.isDone) {
+                await Task.Delay(50, token);
+            }
+            token.ThrowIfCancellationRequested();
+        } catch (OperationCanceledException) {
+            req.Abort();
+            throw;
+        }
 
-        var source = new TaskCompletionSource<CachedImage?>();
+        if (req.result != UnityWebRequest.Result.Success) {
+            Debug.LogWarning($"Failed to load remote image [{location}]: {req.error}");
+            return null;
+        }
 
-        req.SendWebRequest().completed += _ => {
-            // ReSharper disable once AccessToDisposedClosure
+        try {
             var tex = DownloadHandlerTexture.GetContent(req);
             var sprite = SpriteUtils.CreateSprite(tex);
-
-            var cached = sprite != null ? new CachedImage(sprite) : null;
-
-            source.SetResult(cached);
-        };
-
-        return await source.Task;
+            return sprite != null ? new CachedImage(sprite) : null;
+        } catch (Exception ex) {
+            Debug.LogWarning($"Failed to decode remote image [{location}]: {ex.Message}");
+            return null;
+        }
     }
 
     private static async Task<CachedImage?> LoadAnyRemote(string location, CancellationToken token) {

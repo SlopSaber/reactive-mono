@@ -12,15 +12,19 @@ namespace Reactive {
 
         public static Texture2D CreateTexture(RenderTexture rt) {
             var active = RenderTexture.active;
-            RenderTexture.active = rt;
-            
             var texture2D = new Texture2D(rt.width, rt.height);
-            texture2D.wrapMode = rt.wrapMode;
-            texture2D.ReadPixels(new Rect(0.0f, 0.0f, (float) texture2D.width, (float) texture2D.height), 0, 0);
-            texture2D.Apply();
-            
-            RenderTexture.active = active;
-            return texture2D;
+            try {
+                RenderTexture.active = rt;
+                texture2D.wrapMode = rt.wrapMode;
+                texture2D.ReadPixels(new Rect(0.0f, 0.0f, (float) texture2D.width, (float) texture2D.height), 0, 0);
+                texture2D.Apply();
+                return texture2D;
+            } catch {
+                UnityEngine.Object.Destroy(texture2D);
+                throw;
+            } finally {
+                RenderTexture.active = active;
+            }
         }
         
         public static Texture2D? CreateTexture(byte[] bytes) {
@@ -28,8 +32,12 @@ namespace Reactive {
             var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false, false);
             
             try {
-                texture.LoadImage(bytes);
+                if (!texture.LoadImage(bytes)) {
+                    UnityEngine.Object.Destroy(texture);
+                    return null;
+                }
             } catch (Exception ex) {
+                UnityEngine.Object.Destroy(texture);
                 Debug.LogError($"Failed to create a texture:\n{ex}");
                 return null;
             }

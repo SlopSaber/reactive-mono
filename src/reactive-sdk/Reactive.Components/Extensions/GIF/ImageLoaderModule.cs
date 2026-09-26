@@ -50,6 +50,7 @@ public class ImageLoaderModule(ISpriteRenderer renderer) : IReactiveModule {
 
             if (image == null) {
                 Debug.LogError("Remote picture has failed to load");
+                onFinish?.Invoke(false);
                 return;
             }
 
