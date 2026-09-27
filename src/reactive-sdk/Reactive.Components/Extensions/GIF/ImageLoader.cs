@@ -144,7 +144,16 @@ public static class ImageLoader {
         }
 
         if (req.result != UnityWebRequest.Result.Success) {
-            Debug.LogWarning($"Failed to load remote image [{location}]: {req.error}");
+            if (req.responseCode != 429 &&
+                req.error?.IndexOf("Access denied", StringComparison.OrdinalIgnoreCase) >= 0) {
+                var recovered = await TryLoadStaticRemoteWithHttpClient(location, token);
+                if (recovered != null) {
+                    return recovered;
+                }
+            }
+
+            Debug.LogWarning($"Failed to load remote image [{location}]: {req.error} " +
+                             $"(result: {req.result}, HTTP: {req.responseCode})");
             return null;
         }
 
@@ -154,6 +163,29 @@ public static class ImageLoader {
             return sprite != null ? new CachedImage(sprite) : null;
         } catch (Exception ex) {
             Debug.LogWarning($"Failed to decode remote image [{location}]: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static async Task<CachedImage?> TryLoadStaticRemoteWithHttpClient(string location, CancellationToken token) {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+
+        try {
+            using var response = await client.GetAsync(location, HttpCompletionOption.ResponseContentRead, timeout.Token);
+            if (!response.IsSuccessStatusCode) {
+                Debug.LogWarning($"Remote image fallback [{location}] returned HTTP {(int)response.StatusCode}");
+                return null;
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            token.ThrowIfCancellationRequested();
+            var sprite = SpriteUtils.CreateSprite(bytes);
+            return sprite != null ? new CachedImage(sprite) : null;
+        } catch (OperationCanceledException) when (token.IsCancellationRequested) {
+            throw;
+        } catch (Exception ex) {
+            Debug.LogWarning($"Remote image fallback [{location}] failed: {ex.Message}");
             return null;
         }
     }
