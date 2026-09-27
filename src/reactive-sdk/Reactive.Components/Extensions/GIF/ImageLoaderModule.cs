@@ -65,7 +65,7 @@ public class ImageLoaderModule(ISpriteRenderer renderer) : IReactiveModule {
             LoadedImage = image;
 
             onFinish?.Invoke(true);
-        } catch (TaskCanceledException) {
+        } catch (OperationCanceledException) {
             // do nothing
         } catch (Exception ex) {
             Debug.LogError($"Image loading has failed: {ex}");
