@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <GameDirectory>D:\BSManager\BSInstances\1.45.1</GameDirectory>
+        <GameDirectory>D:\BSManager\BSInstances\1.45.2</GameDirectory>
         <ImportBSMTTargets>false</ImportBSMTTargets>
         <DisableCopyToGame Condition="!$(Configuration.Contains('Editor'))">false</DisableCopyToGame>
         <DisableCopyToGame Condition="$(Configuration.Contains('Editor'))">true</DisableCopyToGame>
