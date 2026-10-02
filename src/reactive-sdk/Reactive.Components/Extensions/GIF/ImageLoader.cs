@@ -45,25 +45,35 @@ public static class ImageLoader {
                     image = await LoadStaticRemote(location, token);
                 }
             } else {
-                Stream? stream = null;
-
+                ImageRequest request;
                 if (TryGetAssembly(location, out var asm, out var asmPath)) {
-                    //
-                    stream = asm!.GetManifestResourceStream(asmPath);
-                    //
-                } else if (File.Exists(location)) {
-                    //
-                    stream = File.OpenRead(location);
+                    if (asm!.GetType() == typeof(ImageLoader).Assembly.GetType()) {
+                        request = new ImageRequest(asm, asmPath, null, null, null);
+                    } else {
+                        using var stream = asm.GetManifestResourceStream(asmPath!);
+                        if (stream == null) return null;
+                        image = await LoadCustomAssemblyStream(stream, token);
+                        if (image != null) {
+                            _cachedImages[location] = image;
+                            _imageUsage.TryAdd(location, 0);
+                        }
+                        return image;
+                    }
+                } else {
+                    string path;
+                    try {
+                        path = Path.GetFullPath(location);
+                    } catch (ArgumentException) {
+                        return null;
+                    } catch (NotSupportedException) {
+                        return null;
+                    } catch (PathTooLongException) {
+                        return null;
+                    }
+                    request = new ImageRequest(null, null, path, null, null);
                 }
 
-                if (stream != null) {
-                    try {
-                        image = await LoadImageFromStream(stream, null, token);
-                    }
-                    finally {
-                        stream.Dispose();
-                    }
-                }
+                image = await LoadPreparedImage(request, token);
             }
 
             if (image != null) {
@@ -83,9 +93,10 @@ public static class ImageLoader {
     /// <param name="bytes">A buffer to load from.</param>
     /// <param name="token">A cancellation token.</param>
     public static async Task<CachedImage?> LoadImageFromBytes(byte[] bytes, CancellationToken token) {
-        using var stream = new MemoryStream(bytes);
-
-        return await LoadImageFromStream(stream, bytes, token);
+        if (bytes == null) throw new ArgumentNullException("buffer");
+        token.ThrowIfCancellationRequested();
+        var ownedBytes = (byte[])bytes.Clone();
+        return await LoadPreparedImage(new ImageRequest(null, null, null, ownedBytes, null), token);
     }
 
     public static void RemoveCached(string location) {
@@ -192,8 +203,7 @@ public static class ImageLoader {
 
     private static async Task<CachedImage?> LoadAnyRemote(string location, CancellationToken token) {
         using var stream = await client.GetStreamAsync(location);
-
-        return await LoadImageFromStream(stream, null, token);
+        return await LoadPreparedImage(new ImageRequest(null, null, null, null, stream), token);
     }
 
     #endregion
@@ -221,65 +231,102 @@ public static class ImageLoader {
 
     #endregion
 
-    #region Stream
+    #region Preparation
 
-    private static async Task<CachedImage?> LoadImageFromStream(Stream stream, byte[]? bytes, CancellationToken token) {
-        // Try to load as GIF first
-        if (await TryLoadGifImage(stream, token) is { } gif) {
-            return new CachedImage(gif);
-        }
-
-        // Reset stream position for fallback
+    private static async Task<CachedImage?> LoadCustomAssemblyStream(Stream stream, CancellationToken token) {
+        var gif = await Task.Run(() => {
+            try {
+                var reader = new BinaryReader(stream);
+                return new GIFLoader().Load(reader);
+            } catch (Exception ex) {
+                Debug.LogError($"Failed to create a GIF: {ex}");
+                return null;
+            }
+        }, token);
+        if (gif != null) return new CachedImage(gif);
         stream.Position = 0;
-
         try {
-            // Load bytes or use a preloaded array
-            bytes ??= await ReadStreamToBufferAsync(stream, token);
-
-            // Load as static image (e.g. PNG, JPG)
-            var sprite = SpriteUtils.CreateSprite(bytes);
-
-            return new CachedImage(sprite!);
+            var contentSize = (int)stream.Length;
+            var buffer = new byte[contentSize];
+            var totalRead = 0;
+            while (totalRead < contentSize) {
+                var read = await stream.ReadAsync(buffer, totalRead, contentSize - totalRead, token);
+                if (read == 0) throw new EndOfStreamException("Unexpected end of stream before expected content size.");
+                totalRead += read;
+            }
+            return new CachedImage(SpriteUtils.CreateSprite(buffer)!);
         } catch (Exception ex) {
             Debug.LogWarning($"Failed to create a static image: {ex.Message}");
             return null;
         }
     }
 
-    private static Task<GIFImage?> TryLoadGifImage(Stream stream, CancellationToken token) {
-        return Task.Run(
-            () => {
-                try {
-                    // Important to leave open as it's just a wrapper
-                    var reader = new BinaryReader(stream);
-
-                    // Returns null if magic is invalid
-                    return new GIFLoader().Load(reader);
-                } catch (Exception ex) {
-                    Debug.LogError($"Failed to create a GIF: {ex}");
-
-                    return null;
-                }
-            },
-            token
-        );
+    private sealed class ImageRequest(
+        Assembly? assembly, string? resourcePath, string? filePath, byte[]? bytes, Stream? stream
+    ) {
+        public readonly Assembly? Assembly = assembly;
+        public readonly string? ResourcePath = resourcePath;
+        public readonly string? FilePath = filePath;
+        public readonly byte[]? Bytes = bytes;
+        public readonly Stream? Stream = stream;
     }
 
-    private static async Task<byte[]> ReadStreamToBufferAsync(Stream stream, CancellationToken cancellationToken = default) {
-        var contentSize = (int)stream.Length;
-        var buffer = new byte[contentSize];
-        var totalRead = 0;
+    private sealed class PreparedImage(byte[] bytes, GIFImage? gif, Exception? gifError, bool readFailed = false) {
+        public readonly byte[] Bytes = bytes;
+        public readonly GIFImage? Gif = gif;
+        public readonly Exception? GifError = gifError;
+        public readonly bool ReadFailed = readFailed;
+    }
 
-        while (totalRead < contentSize) {
-            var read = await stream.ReadAsync(buffer, totalRead, contentSize - totalRead, cancellationToken);
-            if (read == 0) {
-                throw new EndOfStreamException("Unexpected end of stream before expected content size.");
+    private static PreparedImage? PrepareImage(object? state) {
+        var request = (ImageRequest)state!;
+        var bytes = request.Bytes;
+        if (bytes == null) {
+            using var stream = request.Stream ?? (request.Assembly != null
+                ? request.Assembly.GetManifestResourceStream(request.ResourcePath!)
+                : File.Exists(request.FilePath) ? File.OpenRead(request.FilePath!) : null);
+            if (stream == null) return null;
+            using var buffer = new MemoryStream();
+            try {
+                stream.CopyTo(buffer);
+                bytes = buffer.ToArray();
+            } catch (Exception ex) {
+                return new PreparedImage([], null, ex, true);
             }
-
-            totalRead += read;
         }
 
-        return buffer;
+        try {
+            using var stream = new MemoryStream(bytes, false);
+            using var reader = new BinaryReader(stream);
+            return new PreparedImage(bytes, new GIFLoader().Load(reader), null);
+        } catch (Exception ex) {
+            return new PreparedImage(bytes, null, ex);
+        }
+    }
+
+    private static async Task<CachedImage?> LoadPreparedImage(ImageRequest request, CancellationToken token) {
+        var preparation = Task.Factory.StartNew(PrepareImage, request, token,
+            TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+        var prepared = await preparation;
+        token.ThrowIfCancellationRequested();
+        if (prepared == null) return null;
+        if (prepared.GifError != null) {
+            Debug.LogError($"Failed to create a GIF: {prepared.GifError}");
+            token.ThrowIfCancellationRequested();
+        }
+        if (prepared.ReadFailed) {
+            Debug.LogWarning($"Failed to create a static image: {prepared.GifError!.Message}");
+            return null;
+        }
+        if (prepared.Gif != null) return new CachedImage(prepared.Gif);
+
+        try {
+            var sprite = SpriteUtils.CreateSprite(prepared.Bytes);
+            return new CachedImage(sprite!);
+        } catch (Exception ex) {
+            Debug.LogWarning($"Failed to create a static image: {ex.Message}");
+            return null;
+        }
     }
 
     #endregion

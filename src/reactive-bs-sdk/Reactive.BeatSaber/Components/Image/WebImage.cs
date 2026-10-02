@@ -50,6 +50,7 @@ public class WebImage : Image {
                 }
             );
         } else {
+            this.CancelWebLoading();
             Sprite = null;
             _spinnerAlpha.Value = 0f;
         }
