@@ -54,8 +54,7 @@ public static class ImageLoader {
                         if (stream == null) return null;
                         image = await LoadCustomAssemblyStream(stream, token);
                         if (image != null) {
-                            _cachedImages[location] = image;
-                            _imageUsage.TryAdd(location, 0);
+                            images[location] = image;
                         }
                         return image;
                     }
