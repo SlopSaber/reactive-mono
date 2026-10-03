@@ -82,8 +82,8 @@ internal sealed class PreparedGifFrames {
     }
 
     private static void Compose(GIFImageBlock frame, Color32[] colors, int width, int height) {
-        frame.Dispose(colors, width, height);
-        frame.DrawTo(colors, width, height);
+        frame.Dispose(colors, width, height, 0, 0);
+        frame.DrawTo(colors, width, height, 0, 0);
     }
 
     private static bool SamePixels(Color32[] left, Color32[] right) {
