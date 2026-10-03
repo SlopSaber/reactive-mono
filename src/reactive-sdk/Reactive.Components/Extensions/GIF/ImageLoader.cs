@@ -273,6 +273,7 @@ public static class ImageLoader {
     private sealed class PreparedImage(byte[] bytes, GIFImage? gif, Exception? gifError, bool readFailed = false) {
         public readonly byte[] Bytes = bytes;
         public readonly GIFImage? Gif = gif;
+        public readonly PreparedGifFrames? Frames = gif != null ? PreparedGifFrames.TryCreate(gif) : null;
         public readonly Exception? GifError = gifError;
         public readonly bool ReadFailed = readFailed;
     }
@@ -317,7 +318,7 @@ public static class ImageLoader {
             Debug.LogWarning($"Failed to create a static image: {prepared.GifError!.Message}");
             return null;
         }
-        if (prepared.Gif != null) return new CachedImage(prepared.Gif);
+        if (prepared.Gif != null) return new CachedImage(prepared.Gif, prepared.Frames);
 
         try {
             var sprite = SpriteUtils.CreateSprite(prepared.Bytes);

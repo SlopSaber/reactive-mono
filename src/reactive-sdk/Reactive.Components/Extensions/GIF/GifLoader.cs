@@ -243,6 +243,8 @@ namespace B83.Image.GIF {
             graphicControl = new GIFGraphicControlExt(parent);
         }
 
+        internal GIFImageBlock CloneForPreparation() => (GIFImageBlock)MemberwiseClone();
+
         public GIFImage Parent { get; set; }
 
         public EBlockType blockType {
