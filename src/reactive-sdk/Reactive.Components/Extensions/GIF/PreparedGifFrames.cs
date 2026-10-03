@@ -42,6 +42,7 @@ internal sealed class PreparedGifFrames {
             long visits = 0;
             for (var i = 0; i < count; i++) {
                 if (gif.imageData[i] is not GIFImageBlock block || block.GetType() != typeof(GIFImageBlock)) return null;
+                if (block.width == 0 || block.height == 0) return null;
                 visits += (long)block.width * block.height * 8;
                 if (visits > CompositionBudget) return null;
                 blocks[i] = block.CloneForPreparation();
