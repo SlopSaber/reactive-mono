@@ -270,12 +270,22 @@ public static class ImageLoader {
         public readonly Stream? Stream = stream;
     }
 
-    private sealed class PreparedImage(byte[] bytes, GIFImage? gif, Exception? gifError, bool readFailed = false) {
-        public readonly byte[] Bytes = bytes;
-        public readonly GIFImage? Gif = gif;
-        public readonly PreparedGifFrames? Frames = gif != null ? PreparedGifFrames.TryCreate(gif) : null;
-        public readonly Exception? GifError = gifError;
-        public readonly bool ReadFailed = readFailed;
+    private sealed class PreparedImage {
+        public readonly byte[] Bytes;
+        public readonly GIFImage? Gif;
+        public readonly PreparedGifFrames? Frames;
+        public readonly IncrementalGifFrames? IncrementalFrames;
+        public readonly Exception? GifError;
+        public readonly bool ReadFailed;
+
+        public PreparedImage(byte[] bytes, GIFImage? gif, Exception? gifError, bool readFailed = false) {
+            Bytes = bytes;
+            Gif = gif;
+            Frames = gif != null ? PreparedGifFrames.TryCreate(gif) : null;
+            IncrementalFrames = gif != null && Frames == null ? IncrementalGifFrames.TryCreate(gif) : null;
+            GifError = gifError;
+            ReadFailed = readFailed;
+        }
     }
 
     private static PreparedImage? PrepareImage(object? state) {
@@ -318,7 +328,7 @@ public static class ImageLoader {
             Debug.LogWarning($"Failed to create a static image: {prepared.GifError!.Message}");
             return null;
         }
-        if (prepared.Gif != null) return new CachedImage(prepared.Gif, prepared.Frames);
+        if (prepared.Gif != null) return new CachedImage(prepared.Gif, prepared.Frames, prepared.IncrementalFrames);
 
         try {
             var sprite = SpriteUtils.CreateSprite(prepared.Bytes);

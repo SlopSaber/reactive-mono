@@ -14,13 +14,16 @@ public class CachedImage {
     private readonly RenderTexture? _renderTexture;
     private Color32[]? _colors;
     private PreparedGifFrames? _preparedFrames;
+    private IncrementalGifFrames? _incrementalFrames;
     private int _currentIndex;
     private float _deltaAccumulated;
     private bool _hasLooped;
 
     internal CachedImage(GIFImage gifImage) : this(gifImage, null) { }
 
-    internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames) {
+    internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames) : this(gifImage, preparedFrames, null) { }
+
+    internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames, IncrementalGifFrames? incrementalFrames) {
         IsAnimated = true;
 
         _renderTexture = new RenderTexture(gifImage.screen.width, gifImage.screen.height, 0, RenderTextureFormat.Default, 10);
@@ -33,6 +36,7 @@ public class CachedImage {
 
         _gifImage = gifImage;
         _preparedFrames = preparedFrames;
+        _incrementalFrames = incrementalFrames;
     }
 
     internal CachedImage(Sprite sprite) {
@@ -57,21 +61,25 @@ public class CachedImage {
         var frame = _gifImage.imageData[_currentIndex];
 
         if (_deltaAccumulated == 0) {
+            bool drawFailed = false;
             if (!TryUsePreparedFrame(originalTexture)) {
-                frame.Dispose(_colors!, originalTexture.width, originalTexture.height);
-                try {
-                    frame.DrawTo(_colors!, _renderTexture!.width, _renderTexture.height);
-                } catch (Exception) {
-                    originalTexture.SetPixels32(_colors);
-                    originalTexture.Apply();
-                    Graphics.Blit(originalTexture, _renderTexture);
-                    return;
+                if (!TryUseIncrementalFrame(originalTexture, out drawFailed)) {
+                    frame.Dispose(_colors!, originalTexture.width, originalTexture.height);
+                    try {
+                        frame.DrawTo(_colors!, _renderTexture!.width, _renderTexture.height);
+                    } catch (Exception) {
+                        originalTexture.SetPixels32(_colors);
+                        originalTexture.Apply();
+                        Graphics.Blit(originalTexture, _renderTexture);
+                        return;
+                    }
                 }
             }
 
             originalTexture.SetPixels32(_colors);
             originalTexture.Apply();
             Graphics.Blit(originalTexture, _renderTexture);
+            if (drawFailed) return;
         }
 
         _deltaAccumulated += timeDelta;
@@ -84,6 +92,41 @@ public class CachedImage {
                 _hasLooped = true;
             }
         }
+        if (_incrementalFrames != null) {
+            int nextIndex = _deltaAccumulated == 0 ? _currentIndex : (_currentIndex + 1) % _gifImage.imageData.Count;
+            _incrementalFrames.Prefetch(nextIndex);
+        }
+    }
+
+    private bool TryUseIncrementalFrame(Texture2D texture, out bool drawFailed) {
+        drawFailed = false;
+        var frames = _incrementalFrames;
+        if (frames == null) return false;
+        bool compatible;
+        try {
+            compatible = texture.width == frames.Width && texture.height == frames.Height &&
+                _renderTexture!.width == frames.Width && _renderTexture.height == frames.Height &&
+                _gifImage!.imageData.Count == frames.FrameCount;
+        } catch (Exception) {
+            compatible = false;
+        }
+        if (!compatible || !frames.TryTake(_currentIndex, out var frame)) {
+            frames.Retire();
+            _incrementalFrames = null;
+            return false;
+        }
+        _colors = frame!.Pixels;
+        if (frame.DisposeError != null) {
+            frames.Retire();
+            _incrementalFrames = null;
+            frame.DisposeError.Throw();
+        }
+        drawFailed = frame.DrawFailed;
+        if (drawFailed) {
+            frames.Retire();
+            _incrementalFrames = null;
+        }
+        return true;
     }
 
     private bool TryUsePreparedFrame(Texture2D texture) {
