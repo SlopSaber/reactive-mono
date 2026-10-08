@@ -282,7 +282,7 @@ public static class ImageLoader {
             Bytes = bytes;
             Gif = gif;
             Frames = gif != null ? PreparedGifFrames.TryCreate(gif) : null;
-            IncrementalFrames = gif != null && Frames == null ? IncrementalGifFrames.TryCreate(gif) : null;
+            IncrementalFrames = gif != null && Frames == null ? IncrementalGifFrames.TryCreateForOwnedImage(gif) : null;
             GifError = gifError;
             ReadFailed = readFailed;
         }
