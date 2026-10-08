@@ -89,7 +89,7 @@ internal sealed class PreparedGifRuns {
     }
 
     private static bool IsMaterial(GIFImageBlock image) =>
-        image.height >= 8 && (long)image.width * image.height >= 16384;
+        (long)image.width * image.height >= 16384;
 
     private static bool IsSupported(GIFImage gif, int index) {
         if (gif.imageData[index] is not GIFImageBlock image || image.GetType() != typeof(GIFImageBlock) ||
