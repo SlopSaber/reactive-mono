@@ -49,13 +49,10 @@ internal sealed class PreparedGifPatch {
             bool hasMaterialFrame = false;
             for (int i = 0; i < gif.imageData.Count; i++) {
                 if (!IsSupported(gif, i)) return null;
-                if (IsMaterial((GIFImageBlock)gif.imageData[i])) {
-                    if (!CanPrepare(gif, i)) return null;
-                    hasMaterialFrame = true;
-                }
+                if (CanPrepare(gif, i)) hasMaterialFrame = true;
             }
             if (!hasMaterialFrame) return null;
-            var initial = IsMaterial((GIFImageBlock)gif.imageData[0])
+            var initial = CanPrepare(gif, 0)
                 ? Compose(new Request(Capture(gif, 0), 0)) : null;
             return new PreparedGifPatch(gif, initial);
         } catch (Exception) {
@@ -67,6 +64,9 @@ internal sealed class PreparedGifPatch {
         image.usedColorTable != null && (long)image.width * image.height >= 16384;
 
     private static bool IsSupported(GIFImage gif, int index) {
+        if (gif.imageData[index] is GIFTextBlock text)
+            return text.GetType() == typeof(GIFTextBlock) && text.Parent == gif &&
+                text.graphicControl != null && text.graphicControl.GetType() == typeof(GIFGraphicControlExt);
         if (gif.imageData[index] is not GIFImageBlock image || image.GetType() != typeof(GIFImageBlock) ||
             image.Parent != gif || image.graphicControl == null ||
             image.graphicControl.GetType() != typeof(GIFGraphicControlExt) || image.data == null ||
@@ -81,8 +81,7 @@ internal sealed class PreparedGifPatch {
     }
 
     private static bool CanPrepare(GIFImage gif, int index) {
-        if (!IsSupported(gif, index)) return false;
-        var image = (GIFImageBlock)gif.imageData[index];
+        if (!IsSupported(gif, index) || gif.imageData[index] is not GIFImageBlock image) return false;
         if (!IsMaterial(image)) return false;
         long pixels = (long)image.width * image.height;
         long storage = pixels * (NeedsWriteMask(image) ? 5 : 4) + image.data.Count + 1024 +
@@ -153,7 +152,7 @@ internal sealed class PreparedGifPatch {
     }
 
     internal bool OriginalFrame(int index) =>
-        !_retired && _source != null && !IsMaterial((GIFImageBlock)_source.imageData[index]);
+        !_retired && _source != null && !CanPrepare(_source, index);
 
     internal bool TryTake(int index, out Frame? frame) {
         frame = null;

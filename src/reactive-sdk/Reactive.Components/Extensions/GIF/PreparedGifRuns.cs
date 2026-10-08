@@ -82,13 +82,10 @@ internal sealed class PreparedGifRuns {
             bool hasMaterialFrame = false;
             for (int i = 0; i < gif.imageData.Count; i++) {
                 if (!IsSupported(gif, i)) return null;
-                if (IsMaterial((GIFImageBlock)gif.imageData[i])) {
-                    if (!CanPrepare(gif, i, out _)) return null;
-                    hasMaterialFrame = true;
-                }
+                if (CanPrepare(gif, i, out _)) hasMaterialFrame = true;
             }
             if (!hasMaterialFrame) return null;
-            var initial = IsMaterial((GIFImageBlock)gif.imageData[0]) ? Compose(Capture(gif, 0)) : null;
+            var initial = CanPrepare(gif, 0, out _) ? Compose(Capture(gif, 0)) : null;
             return new PreparedGifRuns(gif, initial);
         } catch (Exception) {
             return null;
@@ -125,6 +122,9 @@ internal sealed class PreparedGifRuns {
     }
 
     private static bool IsSupported(GIFImage gif, int index) {
+        if (gif.imageData[index] is GIFTextBlock text)
+            return text.GetType() == typeof(GIFTextBlock) && text.Parent == gif &&
+                text.graphicControl != null && text.graphicControl.GetType() == typeof(GIFGraphicControlExt);
         if (gif.imageData[index] is not GIFImageBlock image || image.GetType() != typeof(GIFImageBlock) ||
             image.Parent != gif || image.graphicControl == null ||
             image.graphicControl.GetType() != typeof(GIFGraphicControlExt) || image.data == null ||
@@ -137,8 +137,7 @@ internal sealed class PreparedGifRuns {
 
     private static bool CanPrepare(GIFImage gif, int index, out int maximumChunks) {
         maximumChunks = 0;
-        if (!IsSupported(gif, index)) return false;
-        var image = (GIFImageBlock)gif.imageData[index];
+        if (!IsSupported(gif, index) || gif.imageData[index] is not GIFImageBlock image) return false;
         if (!IsMaterial(image)) return false;
         long remaining = PacketBudget - AuxiliaryStorage - image.data.Count -
             (image.usedColorTable!.LongLength + (gif.screen.globalColorTable?.LongLength ?? 0)) * 4;
@@ -226,7 +225,7 @@ internal sealed class PreparedGifRuns {
     }
 
     internal bool OriginalFrame(int index) =>
-        !_retired && _source != null && !IsMaterial((GIFImageBlock)_source.imageData[index]);
+        !_retired && _source != null && !CanPrepare(_source, index, out _);
 
     internal bool TryTake(int index, out Frame? frame) {
         frame = null;
