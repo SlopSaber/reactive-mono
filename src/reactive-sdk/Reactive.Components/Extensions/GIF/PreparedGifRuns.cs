@@ -30,6 +30,7 @@ internal sealed class PreparedGifRuns {
     internal int Height { get; }
     internal int FrameCount { get; }
     internal const int RunsPerChunk = ChunkSize;
+    internal const int PixelsPerDenseChunk = ChunkSize;
 
     internal readonly struct Run(int destination, int length, int color) {
         internal readonly int Destination = destination;
@@ -37,11 +38,12 @@ internal sealed class PreparedGifRuns {
         internal readonly int Color = color;
     }
 
-    internal sealed class Frame(int index, List<Run[]> chunks, int count, Color32[][] tiles, bool drawFailed) {
+    internal sealed class Frame(int index, List<Run[]> chunks, int count, Color32[][] tiles, List<Color32[]> denseChunks, bool drawFailed) {
         internal readonly int Index = index;
         internal readonly List<Run[]> Chunks = chunks;
         internal readonly int Count = count;
         internal readonly Color32[][] Tiles = tiles;
+        internal readonly List<Color32[]> DenseChunks = denseChunks;
         internal readonly bool DrawFailed = drawFailed;
     }
 
@@ -53,9 +55,18 @@ internal sealed class PreparedGifRuns {
         internal readonly int MaximumChunks = maximumChunks;
     }
 
-    private sealed class RunBuilder(int maximumChunks) {
+    private sealed class RunBuilder(int maximumChunks, Color32[][] tiles, bool useDense) {
         internal readonly List<Run[]> Chunks = new();
+        internal readonly List<Color32[]> DenseChunks = new();
         internal int Count;
+        private long _allocatedStorage;
+        private int _denseCount;
+
+        private void Reserve(long storage) {
+            if (_allocatedStorage + storage > maximumChunks * (ChunkSize * 12L + 32))
+                throw new InvalidOperationException();
+            _allocatedStorage += storage;
+        }
 
         internal void AddClipped(int destination, int length, int color, int canvasLength) {
             long start = Math.Max(0L, destination);
@@ -64,9 +75,42 @@ internal sealed class PreparedGifRuns {
         }
 
         internal void Add(int destination, int length, int color) {
+            if (!useDense || length >= 8) {
+                AddRun(destination, length, color);
+                return;
+            }
+            while (length > 0) {
+                int offset = _denseCount % ChunkSize;
+                if (offset == 0) {
+                    Reserve(ChunkSize * 4L + 32);
+                    DenseChunks.Add(new Color32[ChunkSize]);
+                }
+                int count = Math.Min(length, ChunkSize - offset);
+                Array.Copy(tiles[color], 0, DenseChunks[DenseChunks.Count - 1], offset, count);
+                bool merged = false;
+                if (Count > 0) {
+                    var chunk = Chunks[(Count - 1) / ChunkSize];
+                    int index = (Count - 1) % ChunkSize;
+                    var previous = chunk[index];
+                    int source = ~previous.Color;
+                    if (previous.Color < 0 && previous.Destination + previous.Length == destination &&
+                        source + previous.Length == _denseCount && source / ChunkSize == _denseCount / ChunkSize) {
+                        chunk[index] = new Run(previous.Destination, previous.Length + count, previous.Color);
+                        merged = true;
+                    }
+                }
+                // Negative color codes encode the offset in worker-filled dense storage.
+                if (!merged) AddRun(destination, count, ~_denseCount);
+                _denseCount += count;
+                destination += count;
+                length -= count;
+            }
+        }
+
+        private void AddRun(int destination, int length, int color) {
             int offset = Count % ChunkSize;
             if (offset == 0) {
-                if (Chunks.Count == maximumChunks) throw new InvalidOperationException();
+                Reserve(ChunkSize * 12L + 32);
                 Chunks.Add(new Run[ChunkSize]);
             }
             Chunks[Chunks.Count - 1][offset] = new Run(destination, length, color);
@@ -168,6 +212,14 @@ internal sealed class PreparedGifRuns {
 
     private static Frame Compose(object? state) {
         var request = (Request)state!;
+        try {
+            return Compose(request, true);
+        } catch (InvalidOperationException) {
+            return Compose(request, false);
+        }
+    }
+
+    private static Frame Compose(Request request, bool useDense) {
         var image = request.Image;
         var palette = image.usedColorTable!;
         var screen = image.Parent.screen;
@@ -186,7 +238,7 @@ internal sealed class PreparedGifRuns {
             for (int x = 0; x < tile.Length; x++) tile[x] = color;
             tiles[i] = tile;
         }
-        var builder = new RunBuilder(request.MaximumChunks);
+        var builder = new RunBuilder(request.MaximumChunks, tiles, useDense);
         int canvasLength = request.Width * request.Height;
         bool restoreBackground = image.graphicControl.DisposalMethod == EDisposalMethod.RestoreBackgroundColor;
         if (restoreBackground && hasBackground) {
@@ -207,7 +259,7 @@ internal sealed class PreparedGifRuns {
                 int source = x + y * image.width;
                 if (source >= image.data.Count) {
                     if (previous >= 0) builder.AddClipped(destination + start, x - start, previous, canvasLength);
-                    return new Frame(request.Index, builder.Chunks, builder.Count, tiles, true);
+                    return new Frame(request.Index, builder.Chunks, builder.Count, tiles, builder.DenseChunks, true);
                 }
                 int color = image.data[source];
                 int code = color == transparent ? restoreBackground ? palette.Length + 1 : -1
@@ -219,7 +271,7 @@ internal sealed class PreparedGifRuns {
             }
             if (previous >= 0) builder.AddClipped(destination + start, image.width - start, previous, canvasLength);
         }
-        return new Frame(request.Index, builder.Chunks, builder.Count, tiles, false);
+        return new Frame(request.Index, builder.Chunks, builder.Count, tiles, builder.DenseChunks, false);
     }
 
     internal bool OriginalFrame(int index) =>

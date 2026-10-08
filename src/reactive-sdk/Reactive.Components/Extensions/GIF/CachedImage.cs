@@ -132,6 +132,12 @@ public class CachedImage {
                 }
                 for (int i = 0; i < frame!.Count; i++) {
                     var run = frame.Chunks[i / PreparedGifRuns.RunsPerChunk][i % PreparedGifRuns.RunsPerChunk];
+                    if (run.Color < 0) {
+                        int source = ~run.Color;
+                        Array.Copy(frame.DenseChunks[source / PreparedGifRuns.PixelsPerDenseChunk],
+                            source % PreparedGifRuns.PixelsPerDenseChunk, _colors, run.Destination, run.Length);
+                        continue;
+                    }
                     var tile = frame.Tiles[run.Color];
                     int destination = run.Destination;
                     int remaining = run.Length;
