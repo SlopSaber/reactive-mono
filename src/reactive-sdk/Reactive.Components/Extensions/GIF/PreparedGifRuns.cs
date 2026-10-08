@@ -190,6 +190,14 @@ internal sealed class PreparedGifRuns {
         return maximumChunks > 0;
     }
 
+    internal static GIFImageBlock? TryCaptureForJoinedFrame(GIFImage gif, int index) {
+        try {
+            return CanPrepare(gif, index, out _) ? Capture(gif, index).Image : null;
+        } catch (Exception) {
+            return null;
+        }
+    }
+
     private static Request Capture(GIFImage gif, int index) {
         if (!CanPrepare(gif, index, out int maximumChunks)) throw new InvalidOperationException();
         var source = (GIFImageBlock)gif.imageData[index];

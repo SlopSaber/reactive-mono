@@ -332,7 +332,7 @@ public static class ImageLoader {
             Debug.LogWarning($"Failed to create a static image: {prepared.GifError!.Message}");
             return null;
         }
-        if (prepared.Gif != null) return new CachedImage(prepared.Gif, prepared.Frames, prepared.IncrementalFrames, prepared.Patch, prepared.Runs);
+        if (prepared.Gif != null) return new CachedImage(prepared.Gif, prepared.Frames, prepared.IncrementalFrames, prepared.Patch, prepared.Runs, true);
 
         try {
             var sprite = SpriteUtils.CreateSprite(prepared.Bytes);

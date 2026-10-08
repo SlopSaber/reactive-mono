@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading;
 using B83.Image.GIF;
 using UnityEngine;
 
@@ -13,6 +14,7 @@ public class CachedImage {
     private readonly GIFImage? _gifImage;
     private readonly RenderTexture? _renderTexture;
     private Color32[]? _colors;
+    private readonly int _joinedOwnerThreadId;
     private PreparedGifFrames? _preparedFrames;
     private IncrementalGifFrames? _incrementalFrames;
     private PreparedGifPatch? _patch;
@@ -31,7 +33,10 @@ public class CachedImage {
     internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames, IncrementalGifFrames? incrementalFrames, PreparedGifPatch? patch)
         : this(gifImage, preparedFrames, incrementalFrames, patch, null) { }
 
-    internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames, IncrementalGifFrames? incrementalFrames, PreparedGifPatch? patch, PreparedGifRuns? runs) {
+    internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames, IncrementalGifFrames? incrementalFrames, PreparedGifPatch? patch, PreparedGifRuns? runs)
+        : this(gifImage, preparedFrames, incrementalFrames, patch, runs, false) { }
+
+    internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames, IncrementalGifFrames? incrementalFrames, PreparedGifPatch? patch, PreparedGifRuns? runs, bool ownsGif) {
         IsAnimated = true;
 
         _renderTexture = new RenderTexture(gifImage.screen.width, gifImage.screen.height, 0, RenderTextureFormat.Default, 10);
@@ -47,6 +52,7 @@ public class CachedImage {
         _incrementalFrames = incrementalFrames;
         _patch = patch;
         _runs = runs;
+        _joinedOwnerThreadId = ownsGif ? Thread.CurrentThread.ManagedThreadId : 0;
     }
 
     internal CachedImage(Sprite sprite) {
@@ -73,7 +79,8 @@ public class CachedImage {
         if (_deltaAccumulated == 0) {
             bool drawFailed = false;
             if (!TryUsePreparedFrame(originalTexture)) {
-                if (!TryUseIncrementalFrame(originalTexture, out drawFailed) && !TryUsePatch(originalTexture) && !TryUseRuns(originalTexture, out drawFailed)) {
+                if (!TryUseIncrementalFrame(originalTexture, out drawFailed) && !TryUsePatch(originalTexture) && !TryUseRuns(originalTexture, out drawFailed) &&
+                    !TryUseJoinedFrame(originalTexture, out drawFailed)) {
                     frame.Dispose(_colors!, originalTexture.width, originalTexture.height);
                     try {
                         frame.DrawTo(_colors!, _renderTexture!.width, _renderTexture.height);
@@ -114,6 +121,31 @@ public class CachedImage {
             int nextIndex = _deltaAccumulated == 0 ? _currentIndex : (_currentIndex + 1) % _gifImage.imageData.Count;
             _runs.Prefetch(nextIndex);
         }
+    }
+
+    private bool TryUseJoinedFrame(Texture2D texture, out bool drawFailed) {
+        drawFailed = false;
+        var colors = _colors;
+        var gif = _gifImage;
+        if (_joinedOwnerThreadId == 0 || Thread.CurrentThread.ManagedThreadId != _joinedOwnerThreadId ||
+            colors == null || gif == null)
+            return false;
+        var image = PreparedGifRuns.TryCaptureForJoinedFrame(gif, _currentIndex);
+        if (image == null) return false;
+        int width;
+        int height;
+        try {
+            width = texture.width;
+            height = texture.height;
+            if (width != gif.screen.width || height != gif.screen.height ||
+                _renderTexture!.width != width || _renderTexture.height != height ||
+                colors.LongLength != (long)width * height)
+                return false;
+        } catch (Exception) {
+            return false;
+        }
+        // No owner code accesses the private pixels until the physical worker has finished.
+        return JoinedGifFrame.TryApply(image, colors, width, height, out drawFailed);
     }
 
     private bool TryUseRuns(Texture2D texture, out bool drawFailed) {
