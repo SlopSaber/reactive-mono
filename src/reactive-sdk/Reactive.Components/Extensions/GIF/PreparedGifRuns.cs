@@ -56,6 +56,12 @@ internal sealed class PreparedGifRuns {
         internal readonly List<Run[]> Chunks = new();
         internal int Count;
 
+        internal void AddClipped(int destination, int length, int color, int canvasLength) {
+            long start = Math.Max(0L, destination);
+            long end = Math.Min((long)canvasLength, (long)destination + length);
+            if (end > start) Add((int)start, (int)(end - start), color);
+        }
+
         internal void Add(int destination, int length, int color) {
             int offset = Count % ChunkSize;
             if (offset == 0) {
@@ -90,7 +96,7 @@ internal sealed class PreparedGifRuns {
     }
 
     private static bool IsMaterial(GIFImageBlock image) {
-        if (image.usedColorTable == null) return false;
+        if (image.usedColorTable == null || !HasSafeGeometry(image)) return false;
         long pixels = (long)image.width * image.height;
         if (image.graphicControl.DisposalMethod == EDisposalMethod.RestoreBackgroundColor &&
             image.Parent.screen.globalColorTable != null &&
@@ -99,13 +105,31 @@ internal sealed class PreparedGifRuns {
         return Math.Min(pixels, image.data.Count) >= 16384;
     }
 
+    private static bool HasSafeGeometry(GIFImageBlock image) {
+        if (image.width == 0 || image.height == 0) return false;
+        var screen = image.Parent.screen;
+        long pixels = (long)image.width * image.height;
+        long lowestRow = (long)screen.height - image.yPos - image.height;
+        long highestRow = (long)screen.height - image.yPos - 1;
+        long lowestProduct = lowestRow * screen.width;
+        long highestProduct = highestRow * screen.width;
+        long first = lowestProduct + image.xPos;
+        long last = highestProduct + image.xPos + image.width - 1;
+        if (pixels > int.MaxValue || lowestProduct < int.MinValue || highestProduct > int.MaxValue ||
+            first < int.MinValue || last > int.MaxValue)
+            return false;
+        bool uncheckedWrites = image.graphicControl.DisposalMethod == EDisposalMethod.RestoreBackgroundColor &&
+            (image.graphicControl.HasTransparentColorIndex ||
+                (screen.globalColorTable != null && screen.bgColorIndex < screen.globalColorTable.Length));
+        return !uncheckedWrites || (first >= 0 && last < (long)screen.width * screen.height);
+    }
+
     private static bool IsSupported(GIFImage gif, int index) {
         if (gif.imageData[index] is not GIFImageBlock image || image.GetType() != typeof(GIFImageBlock) ||
             image.Parent != gif || image.graphicControl == null ||
             image.graphicControl.GetType() != typeof(GIFGraphicControlExt) || image.data == null ||
             image.data.GetType() != typeof(List<byte>) ||
-            (gif.screen.globalColorTable?.Length ?? 0) > 256 || image.width <= 0 || image.height <= 0 ||
-            image.xPos + image.width > gif.screen.width || image.yPos + image.height > gif.screen.height)
+            (gif.screen.globalColorTable?.Length ?? 0) > 256)
             return false;
         if (image.usedColorTable == null) return gif.screen.globalColorTable == null;
         return image.usedColorTable.Length > 0 && image.usedColorTable.Length <= 256;
@@ -166,6 +190,7 @@ internal sealed class PreparedGifRuns {
             tiles[i] = tile;
         }
         var builder = new RunBuilder(request.MaximumChunks);
+        int canvasLength = request.Width * request.Height;
         bool restoreBackground = image.graphicControl.DisposalMethod == EDisposalMethod.RestoreBackgroundColor;
         if (restoreBackground && hasBackground) {
             for (int y = 0; y < image.height; y++) {
@@ -184,18 +209,18 @@ internal sealed class PreparedGifRuns {
             for (int x = 0; x < image.width; x++) {
                 int source = x + y * image.width;
                 if (source >= image.data.Count) {
-                    if (previous >= 0) builder.Add(destination + start, x - start, previous);
+                    if (previous >= 0) builder.AddClipped(destination + start, x - start, previous, canvasLength);
                     return new Frame(request.Index, builder.Chunks, builder.Count, tiles, true);
                 }
                 int color = image.data[source];
                 int code = color == transparent ? restoreBackground ? palette.Length + 1 : -1
                     : color < palette.Length ? color : -1;
                 if (code == previous) continue;
-                if (previous >= 0) builder.Add(destination + start, x - start, previous);
+                if (previous >= 0) builder.AddClipped(destination + start, x - start, previous, canvasLength);
                 start = x;
                 previous = code;
             }
-            if (previous >= 0) builder.Add(destination + start, image.width - start, previous);
+            if (previous >= 0) builder.AddClipped(destination + start, image.width - start, previous, canvasLength);
         }
         return new Frame(request.Index, builder.Chunks, builder.Count, tiles, false);
     }

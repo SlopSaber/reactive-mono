@@ -70,9 +70,10 @@ internal sealed class PreparedGifPatch {
         if (gif.imageData[index] is not GIFImageBlock image || image.GetType() != typeof(GIFImageBlock) ||
             image.Parent != gif || image.graphicControl == null ||
             image.graphicControl.GetType() != typeof(GIFGraphicControlExt) || image.data == null ||
-            image.data.GetType() != typeof(List<byte>) ||
-            image.width <= 0 || image.height <= 0 || image.xPos + image.width > gif.screen.width ||
-            image.yPos + image.height > gif.screen.height)
+            image.data.GetType() != typeof(List<byte>))
+            return false;
+        if (image.width == 0 || image.height == 0) return true;
+        if (image.xPos + image.width > gif.screen.width || image.yPos + image.height > gif.screen.height)
             return false;
         if (image.usedColorTable == null) return gif.screen.globalColorTable == null;
         return image.usedColorTable.Length > 0 && image.usedColorTable.Length <= 256 &&
