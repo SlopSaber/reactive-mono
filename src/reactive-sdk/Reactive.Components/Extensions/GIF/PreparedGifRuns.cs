@@ -17,7 +17,7 @@ internal sealed class PreparedGifRuns {
     private Task<Frame>? _pending;
     private bool _retired;
 
-    private PreparedGifRuns(GIFImage source, Frame initial) {
+    private PreparedGifRuns(GIFImage source, Frame? initial) {
         _source = source;
         _initial = initial;
         Width = source.screen.width;
@@ -70,31 +70,46 @@ internal sealed class PreparedGifRuns {
         try {
             long pixels = (long)gif.screen.width * gif.screen.height;
             if (gif.screen.width <= 0 || gif.screen.height <= 0 || gif.imageData.Count == 0 ||
-                pixels > int.MaxValue || pixels * 12 < PacketBudget * 2)
+                pixels > int.MaxValue)
                 return null;
+            bool hasMaterialFrame = false;
             for (int i = 0; i < gif.imageData.Count; i++) {
-                if (!CanPrepare(gif, i, out _)) return null;
+                if (!IsSupported(gif, i)) return null;
+                if (IsMaterial((GIFImageBlock)gif.imageData[i])) {
+                    if (!CanPrepare(gif, i, out _)) return null;
+                    hasMaterialFrame = true;
+                }
             }
-            return new PreparedGifRuns(gif, Compose(Capture(gif, 0)));
+            if (!hasMaterialFrame) return null;
+            var initial = IsMaterial((GIFImageBlock)gif.imageData[0]) ? Compose(Capture(gif, 0)) : null;
+            return new PreparedGifRuns(gif, initial);
         } catch (Exception) {
             return null;
         }
     }
 
-    private static bool CanPrepare(GIFImage gif, int index, out int maximumChunks) {
-        maximumChunks = 0;
+    private static bool IsMaterial(GIFImageBlock image) =>
+        image.height >= 8 && (long)image.width * image.height >= 16384;
+
+    private static bool IsSupported(GIFImage gif, int index) {
         if (gif.imageData[index] is not GIFImageBlock image || image.GetType() != typeof(GIFImageBlock) ||
             image.Parent != gif || image.graphicControl == null ||
             image.graphicControl.GetType() != typeof(GIFGraphicControlExt) || image.data == null ||
             image.data.GetType() != typeof(List<byte>) || image.usedColorTable == null ||
             image.usedColorTable.Length == 0 || image.usedColorTable.Length > 256 ||
-            (gif.screen.globalColorTable?.Length ?? 0) > 256 || image.width <= 0 || image.height < 8 ||
+            (gif.screen.globalColorTable?.Length ?? 0) > 256 || image.width <= 0 || image.height <= 0 ||
             image.xPos + image.width > gif.screen.width || image.yPos + image.height > gif.screen.height)
             return false;
-        long pixels = (long)image.width * image.height;
-        if (pixels < 16384 || image.data.Count < pixels) return false;
+        return image.data.Count >= (long)image.width * image.height;
+    }
+
+    private static bool CanPrepare(GIFImage gif, int index, out int maximumChunks) {
+        maximumChunks = 0;
+        if (!IsSupported(gif, index)) return false;
+        var image = (GIFImageBlock)gif.imageData[index];
+        if (!IsMaterial(image)) return false;
         long remaining = PacketBudget - AuxiliaryStorage - image.data.Count -
-            (image.usedColorTable.LongLength + (gif.screen.globalColorTable?.LongLength ?? 0)) * 4;
+            (image.usedColorTable!.LongLength + (gif.screen.globalColorTable?.LongLength ?? 0)) * 4;
         maximumChunks = (int)(remaining / (ChunkSize * 12L + 32));
         return maximumChunks > 0;
     }
@@ -172,6 +187,9 @@ internal sealed class PreparedGifRuns {
         return new Frame(request.Index, builder.Chunks, builder.Count, tiles);
     }
 
+    internal bool OriginalFrame(int index) =>
+        !_retired && _source != null && !IsMaterial((GIFImageBlock)_source.imageData[index]);
+
     internal bool TryTake(int index, out Frame? frame) {
         frame = null;
         if (_retired) return false;
@@ -203,6 +221,7 @@ internal sealed class PreparedGifRuns {
                 Retire();
                 return;
             }
+            if (OriginalFrame(index)) return;
             var request = Capture(source, index);
             if (ExecutionContext.IsFlowSuppressed()) {
                 Start(request);

@@ -14,7 +14,7 @@ internal sealed class PreparedGifPatch {
     private Task<Frame>? _pending;
     private bool _retired;
 
-    private PreparedGifPatch(GIFImage source, Frame initial) {
+    private PreparedGifPatch(GIFImage source, Frame? initial) {
         _source = source;
         _initial = initial;
         Width = source.screen.width;
@@ -44,30 +44,47 @@ internal sealed class PreparedGifPatch {
     internal static PreparedGifPatch? TryCreateForOwnedImage(GIFImage gif) {
         try {
             if (gif.screen.width <= 0 || gif.screen.height <= 0 || gif.imageData.Count == 0 ||
-                (long)gif.screen.width * gif.screen.height * 12 < StorageBudget)
+                (long)gif.screen.width * gif.screen.height > int.MaxValue)
                 return null;
+            bool hasMaterialFrame = false;
             for (int i = 0; i < gif.imageData.Count; i++) {
-                if (!CanPrepare(gif, i)) return null;
+                if (!IsSupported(gif, i)) return null;
+                if (IsMaterial((GIFImageBlock)gif.imageData[i])) {
+                    if (!CanPrepare(gif, i)) return null;
+                    hasMaterialFrame = true;
+                }
             }
-            return new PreparedGifPatch(gif, Compose(new Request(Capture(gif, 0), 0)));
+            if (!hasMaterialFrame) return null;
+            var initial = IsMaterial((GIFImageBlock)gif.imageData[0])
+                ? Compose(new Request(Capture(gif, 0), 0)) : null;
+            return new PreparedGifPatch(gif, initial);
         } catch (Exception) {
             return null;
         }
     }
 
-    private static bool CanPrepare(GIFImage gif, int index) {
+    private static bool IsMaterial(GIFImageBlock image) =>
+        image.height >= 8 && (long)image.width * image.height >= 16384;
+
+    private static bool IsSupported(GIFImage gif, int index) {
         if (gif.imageData[index] is not GIFImageBlock image || image.GetType() != typeof(GIFImageBlock) ||
             image.Parent != gif || image.graphicControl == null ||
             image.graphicControl.GetType() != typeof(GIFGraphicControlExt) || image.data == null ||
             image.data.GetType() != typeof(List<byte>) || image.usedColorTable == null ||
             image.usedColorTable.Length == 0 || image.usedColorTable.Length > 256 ||
-            image.width <= 0 || image.height < 8 || image.xPos + image.width > gif.screen.width ||
+            image.width <= 0 || image.height <= 0 || image.xPos + image.width > gif.screen.width ||
             image.yPos + image.height > gif.screen.height)
             return false;
+        return image.data.Count >= (long)image.width * image.height;
+    }
 
+    private static bool CanPrepare(GIFImage gif, int index) {
+        if (!IsSupported(gif, index)) return false;
+        var image = (GIFImageBlock)gif.imageData[index];
+        if (!IsMaterial(image)) return false;
         long pixels = (long)image.width * image.height;
         long storage = pixels * (NeedsWriteMask(image) ? 5 : 4) + image.data.Count + 1024 +
-            (image.usedColorTable.LongLength + (gif.screen.globalColorTable?.LongLength ?? 0)) * 4;
+            (image.usedColorTable!.LongLength + (gif.screen.globalColorTable?.LongLength ?? 0)) * 4;
         if (pixels < 16384 || pixels > int.MaxValue || image.data.Count < pixels || storage * 2 > StorageBudget)
             return false;
 
@@ -133,6 +150,9 @@ internal sealed class PreparedGifPatch {
         return mask;
     }
 
+    internal bool OriginalFrame(int index) =>
+        !_retired && _source != null && !IsMaterial((GIFImageBlock)_source.imageData[index]);
+
     internal bool TryTake(int index, out Frame? frame) {
         frame = null;
         if (_retired) return false;
@@ -164,6 +184,7 @@ internal sealed class PreparedGifPatch {
                 Retire();
                 return;
             }
+            if (OriginalFrame(index)) return;
             var request = new Request(Capture(source, index), index);
             if (ExecutionContext.IsFlowSuppressed()) {
                 Start(request);

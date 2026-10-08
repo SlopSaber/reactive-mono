@@ -122,8 +122,13 @@ public class CachedImage {
         try {
             if (texture.width == runs.Width && texture.height == runs.Height &&
                 _renderTexture!.width == runs.Width && _renderTexture.height == runs.Height &&
-                _gifImage!.imageData.Count == runs.FrameCount && _colors!.LongLength == (long)runs.Width * runs.Height &&
-                runs.TryTake(_currentIndex, out var frame)) {
+                _gifImage!.imageData.Count == runs.FrameCount && _colors!.LongLength == (long)runs.Width * runs.Height) {
+                if (runs.OriginalFrame(_currentIndex)) return false;
+                if (!runs.TryTake(_currentIndex, out var frame)) {
+                    runs.Retire();
+                    _runs = null;
+                    return false;
+                }
                 for (int i = 0; i < frame!.Count; i++) {
                     var run = frame.Chunks[i / PreparedGifRuns.RunsPerChunk][i % PreparedGifRuns.RunsPerChunk];
                     var tile = frame.Tiles[run.Color];
@@ -151,8 +156,13 @@ public class CachedImage {
         try {
             if (texture.width == patch.Width && texture.height == patch.Height &&
                 _renderTexture!.width == patch.Width && _renderTexture.height == patch.Height &&
-                _gifImage!.imageData.Count == patch.FrameCount && _colors!.LongLength == (long)patch.Width * patch.Height &&
-                patch.TryTake(_currentIndex, out var frame)) {
+                _gifImage!.imageData.Count == patch.FrameCount && _colors!.LongLength == (long)patch.Width * patch.Height) {
+                if (patch.OriginalFrame(_currentIndex)) return false;
+                if (!patch.TryTake(_currentIndex, out var frame)) {
+                    patch.Retire();
+                    _patch = null;
+                    return false;
+                }
                 for (int y = 0; y < frame!.Height; y++) {
                     int destination = frame.X + (patch.Height - frame.Y - frame.Height + y) * patch.Width;
                     int source = y * frame.Width;
