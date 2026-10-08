@@ -8,6 +8,7 @@ using UnityEngine;
 namespace Reactive.Components;
 
 internal sealed class PreparedGifRuns {
+    // Bounds new packet allocations; the original immutable raster is retained separately.
     private const long PacketBudget = 16L * 1024 * 1024;
     private const long AuxiliaryStorage = 256L * 1024;
     private const int ChunkSize = 4096;
@@ -139,7 +140,7 @@ internal sealed class PreparedGifRuns {
         maximumChunks = 0;
         if (!IsSupported(gif, index) || gif.imageData[index] is not GIFImageBlock image) return false;
         if (!IsMaterial(image)) return false;
-        long remaining = PacketBudget - AuxiliaryStorage - image.data.Count -
+        long remaining = PacketBudget - AuxiliaryStorage -
             (image.usedColorTable!.LongLength + (gif.screen.globalColorTable?.LongLength ?? 0)) * 4;
         maximumChunks = (int)(remaining / (ChunkSize * 12L + 32));
         return maximumChunks > 0;
@@ -158,11 +159,8 @@ internal sealed class PreparedGifRuns {
             delay = source.graphicControl.delay,
             transparentColorIndex = source.graphicControl.transparentColorIndex
         };
-        long retainedStorage = source.data.Capacity + AuxiliaryStorage +
-            (source.usedColorTable!.LongLength + (gif.screen.globalColorTable?.LongLength ?? 0)) * 4 +
-            maximumChunks * (ChunkSize * 12L + 32);
-        // Only the completed private decode producer supplies this immutable raster.
-        image.data = retainedStorage <= PacketBudget ? source.data : new List<byte>(source.data);
+        // The private decode raster is immutable; this reference retains it until task completion.
+        image.data = source.data;
         image.usedColorTable = (Color32[])source.usedColorTable!.Clone();
         image.colorTable = image.usedColorTable;
         return new Request(image, gif.screen.width, gif.screen.height, index, maximumChunks);
