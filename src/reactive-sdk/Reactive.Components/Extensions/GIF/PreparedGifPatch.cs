@@ -26,13 +26,14 @@ internal sealed class PreparedGifPatch {
     internal int Height { get; }
     internal int FrameCount { get; }
 
-    internal sealed class Frame(int index, int x, int y, int width, int height, Color32[] pixels) {
+    internal sealed class Frame(int index, int x, int y, int width, int height, Color32[] pixels, bool[]? writeMask) {
         internal readonly int Index = index;
         internal readonly int X = x;
         internal readonly int Y = y;
         internal readonly int Width = width;
         internal readonly int Height = height;
         internal readonly Color32[] Pixels = pixels;
+        internal readonly bool[]? WriteMask = writeMask;
     }
 
     private sealed class Request(GIFImageBlock image, int index) {
@@ -58,21 +59,28 @@ internal sealed class PreparedGifPatch {
         if (gif.imageData[index] is not GIFImageBlock image || image.GetType() != typeof(GIFImageBlock) ||
             image.Parent != gif || image.graphicControl == null ||
             image.graphicControl.GetType() != typeof(GIFGraphicControlExt) || image.data == null ||
-            image.data.GetType() != typeof(List<byte>) || image.usedColorTable?.Length != 256 ||
+            image.data.GetType() != typeof(List<byte>) || image.usedColorTable == null ||
+            image.usedColorTable.Length == 0 || image.usedColorTable.Length > 256 ||
             image.width <= 0 || image.height < 8 || image.xPos + image.width > gif.screen.width ||
             image.yPos + image.height > gif.screen.height)
             return false;
 
         long pixels = (long)image.width * image.height;
-        long storage = pixels * 4 + image.data.Count + 1024 +
+        long storage = pixels * (NeedsWriteMask(image) ? 5 : 4) + image.data.Count + 1024 +
             (image.usedColorTable.LongLength + (gif.screen.globalColorTable?.LongLength ?? 0)) * 4;
         if (pixels < 16384 || pixels > int.MaxValue || image.data.Count < pixels || storage * 2 > StorageBudget)
             return false;
 
-        // Transparent pixels need a complete current-frame background, never a borrowed prior canvas.
-        return !image.graphicControl.HasTransparentColorIndex ||
-            (image.graphicControl.DisposalMethod == EDisposalMethod.RestoreBackgroundColor &&
-                gif.screen.globalColorTable != null && gif.screen.bgColorIndex < gif.screen.globalColorTable.Length);
+        return true;
+    }
+
+    private static bool NeedsWriteMask(GIFImageBlock image) {
+        bool restoreBackground = image.graphicControl.DisposalMethod == EDisposalMethod.RestoreBackgroundColor;
+        if (restoreBackground && image.Parent.screen.globalColorTable != null &&
+            image.Parent.screen.bgColorIndex < image.Parent.screen.globalColorTable.Length)
+            return false;
+        return image.usedColorTable!.Length < 256 ||
+            (image.graphicControl.HasTransparentColorIndex && !restoreBackground);
     }
 
     private static GIFImageBlock Capture(GIFImage gif, int index) {
@@ -100,7 +108,25 @@ internal sealed class PreparedGifPatch {
         var pixels = new Color32[image.width * image.height];
         image.Dispose(pixels, image.width, image.height, -image.xPos, image.yPos);
         image.DrawTo(pixels, image.width, image.height, -image.xPos, image.yPos);
-        return new Frame(request.Index, image.xPos, image.yPos, image.width, image.height, pixels);
+        return new Frame(request.Index, image.xPos, image.yPos, image.width, image.height, pixels,
+            NeedsWriteMask(image) ? CreateWriteMask(image) : null);
+    }
+
+    private static bool[] CreateWriteMask(GIFImageBlock image) {
+        var mask = new bool[image.width * image.height];
+        int transparent = image.graphicControl.HasTransparentColorIndex
+            ? image.graphicControl.transparentColorIndex : -1;
+        bool restoreBackground = image.graphicControl.DisposalMethod == EDisposalMethod.RestoreBackgroundColor;
+        int paletteLength = image.usedColorTable!.Length;
+        for (int y = 0; y < image.height; y++) {
+            int row = image.IsInterlaced ? image.GetInterlacedIndex(y) : y;
+            int destination = (image.height - row - 1) * image.width;
+            for (int x = 0; x < image.width; x++) {
+                int color = image.data[x + y * image.width];
+                mask[destination + x] = color == transparent ? restoreBackground : color < paletteLength;
+            }
+        }
+        return mask;
     }
 
     internal bool TryTake(int index, out Frame? frame) {

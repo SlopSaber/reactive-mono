@@ -117,7 +117,20 @@ public class CachedImage {
                 patch.TryTake(_currentIndex, out var frame)) {
                 for (int y = 0; y < frame!.Height; y++) {
                     int destination = frame.X + (patch.Height - frame.Y - frame.Height + y) * patch.Width;
-                    Array.Copy(frame.Pixels, y * frame.Width, _colors, destination, frame.Width);
+                    int source = y * frame.Width;
+                    var mask = frame.WriteMask;
+                    if (mask == null) {
+                        Array.Copy(frame.Pixels, source, _colors, destination, frame.Width);
+                        continue;
+                    }
+                    int x = 0;
+                    while (x < frame.Width) {
+                        while (x < frame.Width && !mask[source + x]) x++;
+                        int start = x;
+                        while (x < frame.Width && mask[source + x]) x++;
+                        if (x > start)
+                            Array.Copy(frame.Pixels, source + start, _colors, destination + start, x - start);
+                    }
                 }
                 return true;
             }
