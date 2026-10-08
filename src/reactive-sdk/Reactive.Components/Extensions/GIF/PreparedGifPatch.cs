@@ -89,7 +89,7 @@ internal sealed class PreparedGifPatch {
             transparentColorIndex = source.graphicControl.transparentColorIndex
         };
         image.data = new List<byte>(source.data);
-        image.usedColorTable = (Color32[])source.usedColorTable.Clone();
+        image.usedColorTable = (Color32[])source.usedColorTable!.Clone();
         image.colorTable = image.usedColorTable;
         return image;
     }
