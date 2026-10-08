@@ -36,11 +36,12 @@ internal sealed class PreparedGifRuns {
         internal readonly int Color = color;
     }
 
-    internal sealed class Frame(int index, List<Run[]> chunks, int count, Color32[][] tiles) {
+    internal sealed class Frame(int index, List<Run[]> chunks, int count, Color32[][] tiles, bool drawFailed) {
         internal readonly int Index = index;
         internal readonly List<Run[]> Chunks = chunks;
         internal readonly int Count = count;
         internal readonly Color32[][] Tiles = tiles;
+        internal readonly bool DrawFailed = drawFailed;
     }
 
     private sealed class Request(GIFImageBlock image, int width, int height, int index, int maximumChunks) {
@@ -88,8 +89,15 @@ internal sealed class PreparedGifRuns {
         }
     }
 
-    private static bool IsMaterial(GIFImageBlock image) =>
-        image.usedColorTable != null && (long)image.width * image.height >= 16384;
+    private static bool IsMaterial(GIFImageBlock image) {
+        if (image.usedColorTable == null) return false;
+        long pixels = (long)image.width * image.height;
+        if (image.graphicControl.DisposalMethod == EDisposalMethod.RestoreBackgroundColor &&
+            image.Parent.screen.globalColorTable != null &&
+            image.Parent.screen.bgColorIndex < image.Parent.screen.globalColorTable.Length)
+            return pixels >= 16384;
+        return Math.Min(pixels, image.data.Count) >= 16384;
+    }
 
     private static bool IsSupported(GIFImage gif, int index) {
         if (gif.imageData[index] is not GIFImageBlock image || image.GetType() != typeof(GIFImageBlock) ||
@@ -100,8 +108,7 @@ internal sealed class PreparedGifRuns {
             image.xPos + image.width > gif.screen.width || image.yPos + image.height > gif.screen.height)
             return false;
         if (image.usedColorTable == null) return gif.screen.globalColorTable == null;
-        return image.usedColorTable.Length > 0 && image.usedColorTable.Length <= 256 &&
-            image.data.Count >= (long)image.width * image.height;
+        return image.usedColorTable.Length > 0 && image.usedColorTable.Length <= 256;
     }
 
     private static bool CanPrepare(GIFImage gif, int index, out int maximumChunks) {
@@ -175,7 +182,12 @@ internal sealed class PreparedGifRuns {
             int start = 0;
             int previous = -1;
             for (int x = 0; x < image.width; x++) {
-                int color = image.data[x + y * image.width];
+                int source = x + y * image.width;
+                if (source >= image.data.Count) {
+                    if (previous >= 0) builder.Add(destination + start, x - start, previous);
+                    return new Frame(request.Index, builder.Chunks, builder.Count, tiles, true);
+                }
+                int color = image.data[source];
                 int code = color == transparent ? restoreBackground ? palette.Length + 1 : -1
                     : color < palette.Length ? color : -1;
                 if (code == previous) continue;
@@ -185,7 +197,7 @@ internal sealed class PreparedGifRuns {
             }
             if (previous >= 0) builder.Add(destination + start, image.width - start, previous);
         }
-        return new Frame(request.Index, builder.Chunks, builder.Count, tiles);
+        return new Frame(request.Index, builder.Chunks, builder.Count, tiles, false);
     }
 
     internal bool OriginalFrame(int index) =>

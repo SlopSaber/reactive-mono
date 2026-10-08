@@ -73,7 +73,7 @@ public class CachedImage {
         if (_deltaAccumulated == 0) {
             bool drawFailed = false;
             if (!TryUsePreparedFrame(originalTexture)) {
-                if (!TryUseIncrementalFrame(originalTexture, out drawFailed) && !TryUsePatch(originalTexture) && !TryUseRuns(originalTexture)) {
+                if (!TryUseIncrementalFrame(originalTexture, out drawFailed) && !TryUsePatch(originalTexture) && !TryUseRuns(originalTexture, out drawFailed)) {
                     frame.Dispose(_colors!, originalTexture.width, originalTexture.height);
                     try {
                         frame.DrawTo(_colors!, _renderTexture!.width, _renderTexture.height);
@@ -116,7 +116,8 @@ public class CachedImage {
         }
     }
 
-    private bool TryUseRuns(Texture2D texture) {
+    private bool TryUseRuns(Texture2D texture, out bool drawFailed) {
+        drawFailed = false;
         var runs = _runs;
         if (runs == null) return false;
         try {
@@ -140,6 +141,11 @@ public class CachedImage {
                         destination += count;
                         remaining -= count;
                     }
+                }
+                drawFailed = frame.DrawFailed;
+                if (drawFailed) {
+                    runs.Retire();
+                    _runs = null;
                 }
                 return true;
             }
