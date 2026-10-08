@@ -112,7 +112,11 @@ internal sealed class PreparedGifRuns {
             delay = source.graphicControl.delay,
             transparentColorIndex = source.graphicControl.transparentColorIndex
         };
-        image.data = new List<byte>(source.data);
+        long retainedStorage = source.data.Capacity + AuxiliaryStorage +
+            (source.usedColorTable!.LongLength + (gif.screen.globalColorTable?.LongLength ?? 0)) * 4 +
+            maximumChunks * (ChunkSize * 12L + 32);
+        // Only the completed private decode producer supplies this immutable raster.
+        image.data = retainedStorage <= PacketBudget ? source.data : new List<byte>(source.data);
         image.usedColorTable = (Color32[])source.usedColorTable!.Clone();
         image.colorTable = image.usedColorTable;
         return new Request(image, gif.screen.width, gif.screen.height, index, maximumChunks);

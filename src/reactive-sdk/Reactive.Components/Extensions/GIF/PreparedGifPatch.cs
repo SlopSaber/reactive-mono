@@ -96,7 +96,11 @@ internal sealed class PreparedGifPatch {
             delay = source.graphicControl.delay,
             transparentColorIndex = source.graphicControl.transparentColorIndex
         };
-        image.data = new List<byte>(source.data);
+        long retainedStorage = (long)source.width * source.height * (NeedsWriteMask(source) ? 5 : 4) +
+            source.data.Capacity + 1024L +
+            (source.usedColorTable!.LongLength + (gif.screen.globalColorTable?.LongLength ?? 0)) * 4;
+        // Only the completed private decode producer supplies this immutable raster.
+        image.data = retainedStorage * 2 <= StorageBudget ? source.data : new List<byte>(source.data);
         image.usedColorTable = (Color32[])source.usedColorTable!.Clone();
         image.colorTable = image.usedColorTable;
         return image;

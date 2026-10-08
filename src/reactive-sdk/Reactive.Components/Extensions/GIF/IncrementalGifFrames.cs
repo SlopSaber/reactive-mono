@@ -165,7 +165,10 @@ internal sealed class IncrementalGifFrames {
             delay = source.graphicControl.delay,
             transparentColorIndex = source.graphicControl.transparentColorIndex
         };
-        frame.data = new List<byte>(source.data);
+        long retainedPacketStorage = packetStorage + (long)source.data.Capacity - source.data.Count;
+        // Only the completed private decode producer supplies this immutable raster.
+        frame.data = (long)width * height * 12 + 96 + retainedPacketStorage * 2 <= StorageBudget
+            ? source.data : new List<byte>(source.data);
         frame.usedColorTable = source.usedColorTable == null ? null : (Color32[])source.usedColorTable.Clone();
         frame.colorTable = frame.usedColorTable;
         return frame;
