@@ -16,6 +16,7 @@ public class CachedImage {
     private PreparedGifFrames? _preparedFrames;
     private IncrementalGifFrames? _incrementalFrames;
     private PreparedGifPatch? _patch;
+    private PreparedGifRuns? _runs;
     private int _currentIndex;
     private float _deltaAccumulated;
     private bool _hasLooped;
@@ -27,7 +28,10 @@ public class CachedImage {
     internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames, IncrementalGifFrames? incrementalFrames)
         : this(gifImage, preparedFrames, incrementalFrames, null) { }
 
-    internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames, IncrementalGifFrames? incrementalFrames, PreparedGifPatch? patch) {
+    internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames, IncrementalGifFrames? incrementalFrames, PreparedGifPatch? patch)
+        : this(gifImage, preparedFrames, incrementalFrames, patch, null) { }
+
+    internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames, IncrementalGifFrames? incrementalFrames, PreparedGifPatch? patch, PreparedGifRuns? runs) {
         IsAnimated = true;
 
         _renderTexture = new RenderTexture(gifImage.screen.width, gifImage.screen.height, 0, RenderTextureFormat.Default, 10);
@@ -42,6 +46,7 @@ public class CachedImage {
         _preparedFrames = preparedFrames;
         _incrementalFrames = incrementalFrames;
         _patch = patch;
+        _runs = runs;
     }
 
     internal CachedImage(Sprite sprite) {
@@ -68,7 +73,7 @@ public class CachedImage {
         if (_deltaAccumulated == 0) {
             bool drawFailed = false;
             if (!TryUsePreparedFrame(originalTexture)) {
-                if (!TryUseIncrementalFrame(originalTexture, out drawFailed) && !TryUsePatch(originalTexture)) {
+                if (!TryUseIncrementalFrame(originalTexture, out drawFailed) && !TryUsePatch(originalTexture) && !TryUseRuns(originalTexture)) {
                     frame.Dispose(_colors!, originalTexture.width, originalTexture.height);
                     try {
                         frame.DrawTo(_colors!, _renderTexture!.width, _renderTexture.height);
@@ -105,6 +110,39 @@ public class CachedImage {
             int nextIndex = _deltaAccumulated == 0 ? _currentIndex : (_currentIndex + 1) % _gifImage.imageData.Count;
             _patch.Prefetch(nextIndex);
         }
+        if (_runs != null) {
+            int nextIndex = _deltaAccumulated == 0 ? _currentIndex : (_currentIndex + 1) % _gifImage.imageData.Count;
+            _runs.Prefetch(nextIndex);
+        }
+    }
+
+    private bool TryUseRuns(Texture2D texture) {
+        var runs = _runs;
+        if (runs == null) return false;
+        try {
+            if (texture.width == runs.Width && texture.height == runs.Height &&
+                _renderTexture!.width == runs.Width && _renderTexture.height == runs.Height &&
+                _gifImage!.imageData.Count == runs.FrameCount && _colors!.LongLength == (long)runs.Width * runs.Height &&
+                runs.TryTake(_currentIndex, out var frame)) {
+                for (int i = 0; i < frame!.Count; i++) {
+                    var run = frame.Chunks[i / PreparedGifRuns.RunsPerChunk][i % PreparedGifRuns.RunsPerChunk];
+                    var tile = frame.Tiles[run.Color];
+                    int destination = run.Destination;
+                    int remaining = run.Length;
+                    while (remaining > 0) {
+                        int count = Math.Min(remaining, tile.Length);
+                        Array.Copy(tile, 0, _colors, destination, count);
+                        destination += count;
+                        remaining -= count;
+                    }
+                }
+                return true;
+            }
+        } catch (Exception) {
+        }
+        runs.Retire();
+        _runs = null;
+        return false;
     }
 
     private bool TryUsePatch(Texture2D texture) {

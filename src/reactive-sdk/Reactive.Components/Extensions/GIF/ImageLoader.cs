@@ -276,6 +276,7 @@ public static class ImageLoader {
         public readonly PreparedGifFrames? Frames;
         public readonly IncrementalGifFrames? IncrementalFrames;
         public readonly PreparedGifPatch? Patch;
+        public readonly PreparedGifRuns? Runs;
         public readonly Exception? GifError;
         public readonly bool ReadFailed;
 
@@ -285,6 +286,7 @@ public static class ImageLoader {
             Frames = gif != null ? PreparedGifFrames.TryCreate(gif) : null;
             IncrementalFrames = gif != null && Frames == null ? IncrementalGifFrames.TryCreateForOwnedImage(gif) : null;
             Patch = gif != null && Frames == null && IncrementalFrames == null ? PreparedGifPatch.TryCreateForOwnedImage(gif) : null;
+            Runs = gif != null && Frames == null && IncrementalFrames == null && Patch == null ? PreparedGifRuns.TryCreateForOwnedImage(gif) : null;
             GifError = gifError;
             ReadFailed = readFailed;
         }
@@ -330,7 +332,7 @@ public static class ImageLoader {
             Debug.LogWarning($"Failed to create a static image: {prepared.GifError!.Message}");
             return null;
         }
-        if (prepared.Gif != null) return new CachedImage(prepared.Gif, prepared.Frames, prepared.IncrementalFrames, prepared.Patch);
+        if (prepared.Gif != null) return new CachedImage(prepared.Gif, prepared.Frames, prepared.IncrementalFrames, prepared.Patch, prepared.Runs);
 
         try {
             var sprite = SpriteUtils.CreateSprite(prepared.Bytes);
