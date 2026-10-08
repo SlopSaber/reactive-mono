@@ -64,18 +64,19 @@ internal sealed class PreparedGifPatch {
     }
 
     private static bool IsMaterial(GIFImageBlock image) =>
-        (long)image.width * image.height >= 16384;
+        image.usedColorTable != null && (long)image.width * image.height >= 16384;
 
     private static bool IsSupported(GIFImage gif, int index) {
         if (gif.imageData[index] is not GIFImageBlock image || image.GetType() != typeof(GIFImageBlock) ||
             image.Parent != gif || image.graphicControl == null ||
             image.graphicControl.GetType() != typeof(GIFGraphicControlExt) || image.data == null ||
-            image.data.GetType() != typeof(List<byte>) || image.usedColorTable == null ||
-            image.usedColorTable.Length == 0 || image.usedColorTable.Length > 256 ||
+            image.data.GetType() != typeof(List<byte>) ||
             image.width <= 0 || image.height <= 0 || image.xPos + image.width > gif.screen.width ||
             image.yPos + image.height > gif.screen.height)
             return false;
-        return image.data.Count >= (long)image.width * image.height;
+        if (image.usedColorTable == null) return gif.screen.globalColorTable == null;
+        return image.usedColorTable.Length > 0 && image.usedColorTable.Length <= 256 &&
+            image.data.Count >= (long)image.width * image.height;
     }
 
     private static bool CanPrepare(GIFImage gif, int index) {
