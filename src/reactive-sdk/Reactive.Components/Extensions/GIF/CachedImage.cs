@@ -15,6 +15,7 @@ public class CachedImage {
     private Color32[]? _colors;
     private PreparedGifFrames? _preparedFrames;
     private IncrementalGifFrames? _incrementalFrames;
+    private PreparedGifPatch? _patch;
     private int _currentIndex;
     private float _deltaAccumulated;
     private bool _hasLooped;
@@ -23,7 +24,10 @@ public class CachedImage {
 
     internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames) : this(gifImage, preparedFrames, null) { }
 
-    internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames, IncrementalGifFrames? incrementalFrames) {
+    internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames, IncrementalGifFrames? incrementalFrames)
+        : this(gifImage, preparedFrames, incrementalFrames, null) { }
+
+    internal CachedImage(GIFImage gifImage, PreparedGifFrames? preparedFrames, IncrementalGifFrames? incrementalFrames, PreparedGifPatch? patch) {
         IsAnimated = true;
 
         _renderTexture = new RenderTexture(gifImage.screen.width, gifImage.screen.height, 0, RenderTextureFormat.Default, 10);
@@ -37,6 +41,7 @@ public class CachedImage {
         _gifImage = gifImage;
         _preparedFrames = preparedFrames;
         _incrementalFrames = incrementalFrames;
+        _patch = patch;
     }
 
     internal CachedImage(Sprite sprite) {
@@ -63,7 +68,7 @@ public class CachedImage {
         if (_deltaAccumulated == 0) {
             bool drawFailed = false;
             if (!TryUsePreparedFrame(originalTexture)) {
-                if (!TryUseIncrementalFrame(originalTexture, out drawFailed)) {
+                if (!TryUseIncrementalFrame(originalTexture, out drawFailed) && !TryUsePatch(originalTexture)) {
                     frame.Dispose(_colors!, originalTexture.width, originalTexture.height);
                     try {
                         frame.DrawTo(_colors!, _renderTexture!.width, _renderTexture.height);
@@ -96,6 +101,31 @@ public class CachedImage {
             int nextIndex = _deltaAccumulated == 0 ? _currentIndex : (_currentIndex + 1) % _gifImage.imageData.Count;
             _incrementalFrames.Prefetch(nextIndex);
         }
+        if (_patch != null) {
+            int nextIndex = _deltaAccumulated == 0 ? _currentIndex : (_currentIndex + 1) % _gifImage.imageData.Count;
+            _patch.Prefetch(nextIndex);
+        }
+    }
+
+    private bool TryUsePatch(Texture2D texture) {
+        var patch = _patch;
+        if (patch == null) return false;
+        try {
+            if (texture.width == patch.Width && texture.height == patch.Height &&
+                _renderTexture!.width == patch.Width && _renderTexture.height == patch.Height &&
+                _gifImage!.imageData.Count == patch.FrameCount && _colors!.LongLength == (long)patch.Width * patch.Height &&
+                patch.TryTake(_currentIndex, out var frame)) {
+                for (int y = 0; y < frame!.Height; y++) {
+                    int destination = frame.X + (patch.Height - frame.Y - frame.Height + y) * patch.Width;
+                    Array.Copy(frame.Pixels, y * frame.Width, _colors, destination, frame.Width);
+                }
+                return true;
+            }
+        } catch (Exception) {
+        }
+        patch.Retire();
+        _patch = null;
+        return false;
     }
 
     private bool TryUseIncrementalFrame(Texture2D texture, out bool drawFailed) {
